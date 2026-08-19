@@ -1,0 +1,23 @@
+{
+  "name": "auto-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Customization package for pi: adds the joingonka provider and DeepSeek V4 Flash model.",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
