@@ -33,6 +33,21 @@ import {
 } from "../../skills/logging/core.js";
 import { personaTokenFlags } from "../../skills/budget-guard/core.js";
 import { backoffDelay, sleep } from "../../skills/github/core.js";
+import { resolveProviderModel, providerEnv } from "./provider-env.js";
+
+/**
+ * Resolve the provider/model a persona session should use. See
+ * `extensions/loop/provider-env.js` (`resolveProviderModel`) for the shared
+ * resolution order. Delegated wrapper kept for API stability/compat.
+ *
+ * @param {object} [opts]
+ * @param {object} [opts.config]   parsed project config (`{ pi: { provider, model } }`)
+ * @param {object} [opts.env]      environment to read PI_* from (defaults to process.env)
+ * @returns {{ provider: string, model: string }}
+ */
+export function resolvePiModelSync(opts = {}) {
+	return resolveProviderModel({ config: opts.config, env: opts.env });
+}
 
 /**
  * Default number of retries for a failed persona (LLM) invocation, in addition
@@ -289,8 +304,8 @@ export async function runPersona({
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
 
-	const args = buildPersonaArgs({ persona, runId, contextFile, task, config });
-	const childEnv = { ...process.env, ...(env || {}) };
+	const args = buildPersonaArgs({ persona, runId, contextFile, task, config, env });
+	const childEnv = buildChildEnv({ config, env });
 
 	const startedAt = new Date().toISOString();
 	const res = await (execute
@@ -314,10 +329,10 @@ export async function runPersona({
  * Build the `pi` CLI argument list for a persona run (shared by `runPersona`
  * and `runPersonaWithRetry`).
  *
- * @param {object} p { persona, runId, contextFile, task?, config? }
+ * @param {object} p { persona, runId, contextFile, task?, config?, env? }
  * @returns {string[]}
  */
-export function buildPersonaArgs({ persona, runId, contextFile, task, config }) {
+export function buildPersonaArgs({ persona, runId, contextFile, task, config, env }) {
 	const prompt = loadPersonaPromptSync(persona);
 	const taskText = task || `Read the context file and perform the work described for the "${persona}" persona.`;
 
@@ -330,9 +345,13 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config }) 
 		taskText,
 	];
 
-	// Optional model/provider selection from the project config.
-	if (config?.pi?.provider) args.push("--provider", config.pi.provider);
-	if (config?.pi?.model) args.push("--model", config.pi.model);
+	// Optional model/provider selection. Resolve the effective provider/model so
+	// a detached loop (which does not inherit the interactive session's
+	// PI_PROVIDER/PI_MODEL) still pins the model instead of hanging on pi's
+	// default (unauthenticated) google provider.
+	const { provider, model } = resolvePiModelSync({ config, env: env || process.env });
+	if (provider) args.push("--provider", provider);
+	if (model) args.push("--model", model);
 
 	// M13: enforce per-persona token caps (budget guard, plan.md §21). Pass the
 	// context/prompt/output caps to pi so the model is bounded at the persona
@@ -340,6 +359,24 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config }) 
 	for (const flag of personaTokenFlags(config)) args.push(flag);
 
 	return args;
+}
+
+/**
+ * Build the child environment for a spawned `pi` persona process.
+ *
+ * Merges the caller-supplied env over the current process env, then ensures
+ * `PI_PROVIDER` / `PI_MODEL` reflect the *resolved* provider/model (not just
+ * whatever the loop happened to inherit). This makes the spawned `pi` default
+ * to the intended model even when the loop process itself was started without
+ * these env vars (the detached `nohup` case from `/loop-seed`).
+ *
+ * @param {object} [opts]
+ * @param {object} [opts.config]  parsed project config
+ * @param {object} [opts.env]     extra env vars to merge over the current env
+ * @returns {object} child environment object
+ */
+export function buildChildEnv({ config, env } = {}) {
+	return providerEnv({ config, env });
 }
 
 /**
@@ -472,8 +509,8 @@ export async function runPersonaWithRetry(opts = {}) {
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
 
-	const args = buildPersonaArgs({ persona, runId, contextFile, task, config });
-	const childEnv = { ...process.env, ...(env || {}) };
+	const args = buildPersonaArgs({ persona, runId, contextFile, task, config, env });
+	const childEnv = buildChildEnv({ config, env });
 
 	let retries = 0;
 	let lastRes = null;

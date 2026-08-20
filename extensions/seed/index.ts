@@ -7,7 +7,8 @@
  * fallback CLI) with the live Pi UI dialogs injected as the `io` handlers.
  *
  * Usage: `/loop-seed <project description>` — everything after `/loop-seed` becomes the
- * project's one-line description used for clarification and repo naming.
+ * project's one-line description used for clarification. The command also asks for an
+ * explicit project name (used for the repo slug and display name).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -20,7 +21,22 @@ export default function (pi: ExtensionAPI) {
 			"Initiate a new auto-pi project: clarify the idea, create a GitHub repo, clone it locally, and record the active project",
 		handler: async (args, ctx) => {
 			const description = String(args ?? "").trim();
-			if (!description) {
+
+			// Ask for the project name explicitly so the user controls the repo
+			// slug / display name rather than it being derived purely from the
+			// description. Defaults to the description (or a placeholder) when the
+			// user dismisses the prompt.
+			let projectName = "";
+			if (ctx.hasUI && ctx.ui.input) {
+				projectName =
+					(await ctx.ui.input(
+						"Project name",
+						description || "my-project",
+					)) || "";
+			}
+			projectName = projectName.trim();
+
+			if (!description && !projectName) {
 				ctx.ui.notify(
 					"Usage: /loop-seed <project description>\n" +
 						"e.g. /loop-seed Build a markdown notes app",
@@ -62,12 +78,18 @@ export default function (pi: ExtensionAPI) {
 					return answers;
 				},
 
-				confirmRepo: async (repo: string, visibility: string): Promise<boolean> => {
+				confirmRepo: async (
+					repo: string,
+					visibility: string,
+					opts?: { reuseExisting?: boolean },
+				): Promise<boolean> => {
 					return ctx.hasUI && ctx.ui.confirm
 						? Boolean(
 								await ctx.ui.confirm(
-									`Create repo ${repo}?`,
-									`Auto-pi will create a ${visibility} GitHub repository: ${repo}\n\nProceed?`,
+									opts?.reuseExisting ? `Reuse existing repo ${repo}?` : `Create repo ${repo}?`,
+									opts?.reuseExisting
+										? `Auto-pi will reuse and re-scaffold the existing ${visibility} GitHub repository: ${repo}\n\nProceed?`
+										: `Auto-pi will create a ${visibility} GitHub repository: ${repo}\n\nProceed?`,
 								),
 							)
 						: true;
@@ -80,7 +102,7 @@ export default function (pi: ExtensionAPI) {
 				},
 			};
 
-			const result = await runSeed(description, io);
+			const result = await runSeed(description, io, { projectName });
 			if (result.ok) {
 				ctx.ui.notify(result.message, "success");
 			} else {

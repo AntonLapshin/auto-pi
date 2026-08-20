@@ -31,9 +31,10 @@ Implements the `/loop-seed` initiation flow (M2).
 - `index.ts` — registers the `/loop-seed` slash command, injecting live Pi UI dialogs
   (`ctx.ui.confirm/select/input`) as the `io` handlers for `core.js`.
 
-Run it interactively as `/loop-seed <description>`, or from a shell as
-`npm run seed -- "<description>"` (the CLI prompts over stdin; add `--yes` to
-proceed non-interactively with assumptions).
+Run it interactively as `/loop-seed <description>` (it also asks for an explicit
+project name used for the repo slug and display name), or from a shell as
+`npm run seed -- "<description>"` (the CLI prompts over stdin, including the
+project name; add `--yes` to proceed non-interactively with assumptions).
 
 ## GitHub Pages (M4)
 

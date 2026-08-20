@@ -58,10 +58,14 @@ export default function (pi: ExtensionAPI) {
 			try {
 				// Launch the fallback CLI under nohup, capturing output to the loop log.
 				const script = new URL("../../scripts/loop.js", import.meta.url).pathname;
+				// Propagate the resolved provider/model into the detached loop process
+				// (nohup does not inherit the interactive session's PI_* env vars).
+				const { providerEnv } = await import("./provider-env.js");
 				await execa("nohup", ["node", script], {
 					cwd: workspace,
 					detached: true,
 					stdio: "ignore",
+					env: providerEnv(),
 				}).catch(() => {});
 				notify(
 					`Loop started for ${activeRes.active.repo || workspace} (detached). Check .pi/logs/loop.out.`,

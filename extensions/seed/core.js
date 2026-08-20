@@ -2,15 +2,17 @@
  * Shared core for the auto-pi `/loop-seed` initiation flow (M2).
  *
  * Orchestrates: one-project-per-machine enforcement → clarification → repo
- * naming (existence check + fallbacks) → repo creation → local clone/workspace →
- * project scaffold (M3) → project config copy (M5) → `.pi/` state → active-project record.
+ * naming (existence check + fallbacks + optional reuse) → repo creation (or
+ * reuse an existing repo of the chosen name) → local clone/workspace → project
+ * scaffold (M3) → project config copy (M5) → initial commit + push (so origin
+ * reflects the scaffold) → `.pi/` state → active-project record.
  *
  * UI is injected by the caller so the same flow drives both the interactive
  * `/loop-seed` command and the `npm run seed` fallback CLI:
  *
  *   {
  *     askQuestions: async (questions) => answers | { usedAssumptions: true },
- *     confirmRepo:  async (name, visibility) => boolean,
+ *     confirmRepo:  async (name, visibility, { reuseExisting }) => boolean,
  *     chooseRepo:   async (candidates) => string | undefined,
  *     notify:       (text, level?) => void,
  *   }
@@ -213,16 +215,82 @@ async function cloneRepo(workspace, repoName, owner, repoFullName) {
 }
 
 /**
+ * Make the scaffold the project's first commit on the default branch and push
+ * it to origin. Without this, the freshly-scaffolded repo's content would sit
+ * as uncommitted working-tree changes while `origin` only holds the auto-
+ * generated README from `gh repo create --add-readme` (so CI / GitHub Pages
+ * never had anything to run).
+ *
+ * Idempotent: if the scaffold is already committed/pushed (e.g. reusing an
+ * existing repo that already contains it), nothing happens. `.pi/local.json`,
+ * `.pi/logs`, `.pi/state`, and `.pi/runs` are git-ignored, so they are never
+ * staged.
+ *
+ * @param {string} workspace      absolute project root
+ * @param {string} repoFullName   owner/repo
+ * @param {string} branch         default branch (usually "main")
+ * @param {object} [opts]         { commitInitial? }
+ * @returns {Promise<{ ok: boolean, committed: boolean, sha?: string, message: string }>}
+ */
+export async function commitAndPushInitial(workspace, repoFullName, branch, opts = {}) {
+	const untouched = { ok: true, committed: false, message: "no-op" };
+	if (opts.commitInitial === false) return untouched;
+
+	const run = (args, extra = {}) =>
+		execa("git", args, { cwd: workspace, reject: false, ...extra });
+
+	// 1. Stage everything (gitignore excludes the runtime/secrets dirs).
+	await run(["add", "-A"]);
+
+	// 2. Nothing staged -> nothing to commit; origin already matches.
+	const staged = await run(["diff", "--cached", "--quiet"]);
+	if (staged.exitCode === 0) {
+		return { ok: true, committed: false, message: "No staged changes; nothing to commit." };
+	}
+
+	// 3. Commit the scaffold.
+	const commit = await run([
+		"commit",
+		"-m",
+		"Initial scaffold: React + Tailwind + TypeScript project (auto-pi)",
+	]);
+	if (commit.exitCode !== 0) {
+		return {
+			ok: false,
+			committed: true,
+			message: `Initial commit failed: ${commit.stderr?.trim() || commit.stdout?.trim() || commit.exitCode}`,
+		};
+	}
+
+	// 4. Push to origin and set upstream.
+	const push = await run(["push", "-u", "origin", branch]);
+	if (push.exitCode !== 0) {
+		return {
+			ok: false,
+			committed: true,
+			message: `Initial commit created but push failed: ${push.stderr?.trim() || push.stdout?.trim() || push.exitCode}`,
+		};
+	}
+
+	const shaRes = await run(["rev-parse", "--short", "HEAD"]);
+	const sha = (shaRes.stdout || "").trim();
+	return { ok: true, committed: true, sha, message: `Pushed initial commit ${sha}.` };
+}
+
+/**
  * Main `/loop-seed` orchestration.
  *
  * @param {string} description the text after `/loop-seed`
  * @param {object} io          injected UI handlers (see module docblock)
- * @param {object} [opts]      { owner?, githubConfig? } for tests/overrides
+ * @param {object} [opts]      { projectName?, owner?, githubConfig?, reuseExisting?, commitInitial } for tests/overrides
  * @returns {Promise<{ ok: boolean, message: string, state?: object }>}
  */
 export async function runSeed(description, io = {}, opts = {}) {
 	const notify = io.notify || ((t) => process.stdout.write(t + "\n"));
 	const descriptionText = String(description ?? "").trim();
+	// Explicit project name (when the user provided one) — used for repo naming
+	// and as the human-friendly display name in place of the description.
+	const projectName = String(opts.projectName ?? "").trim();
 
 	// 0. Preconditions: machine workspace available; gh authenticated respected.
 	const wsOk = await ensureWorkspaceDir(opts.autoPiDir);
@@ -264,16 +332,25 @@ export async function runSeed(description, io = {}, opts = {}) {
 		notify("No interactive prompt available; using assumptions for clarification.");
 	}
 
-	// 4. Repo naming: derive, check existence, fall back.
-	let repoName = deriveRepoName(descriptionText || clarification.answers.interface || "project");
+	// 4. Repo naming: derive from the explicit project name first (when given),
+	// otherwise fall back to the description / clarification.
+	let repoName = deriveRepoName(projectName || descriptionText || clarification.answers.interface || "project");
 	if (!repoName) repoName = "project";
 	const baseExists = await repoExists(repoName, owner, gh);
 	const alternatives = baseExists.exists ? alternativeNames(repoName) : [];
 	let alternativesConsidered = [repoName];
 
-	// If the derived name is taken, fall back through alternatives in order.
-	if (baseExists.exists) {
-		// Find the first *free* alternative.
+	// Whether we will reuse the already-existing repo of the derived name
+	// rather than creating a fresh one under an alternative name. Set when the
+	// user (or an automated caller via opts.reuseExisting) chooses to reuse it.
+	// Only meaningful if such a repo actually exists.
+	const reuseRequested = Boolean(opts.reuseExisting);
+	let reuseExisting = reuseRequested && baseExists.exists;
+
+	// If the derived name is taken, fall back through alternatives in order —
+	// unless the caller explicitly wants to reuse the existing repo of that name.
+	if (baseExists.exists && !reuseExisting) {
+		// Find the first *free* alternative (recording every considered name).
 		let chosen = null;
 		for (const alt of alternatives) {
 			alternativesConsidered.push(alt);
@@ -281,31 +358,51 @@ export async function runSeed(description, io = {}, opts = {}) {
 			const altExists = await repoExists(alt, owner, gh);
 			if (!altExists.exists) chosen = alt;
 		}
-		if (!chosen) {
-			if (io.chooseRepo) {
-				const pick = await io.chooseRepo([...alternatives, "type a custom name"]);
-				if (pick && pick !== "type a custom name") chosen = pick;
+
+		if (io.chooseRepo) {
+			// Interactive: always let the user choose — including reusing the
+			// existing repo — even when autoCreateRepo is on. We do NOT silently
+			// rename a repo the user asked for by name when we can ask them.
+			const candidates = [
+				`${repoName} (reuse existing)`,
+				...(chosen ? [chosen] : []),
+				...alternatives.filter((a) => a !== chosen),
+				"type a custom name",
+			];
+			// De-dupe candidates, preserving order.
+			const uniq = [];
+			const seen = new Set();
+			for (const c of candidates) {
+				if (!seen.has(c)) {
+					seen.add(c);
+					uniq.push(c);
+				}
 			}
-			if (!chosen) {
+			const pick = await io.chooseRepo(uniq);
+			if (pick === `${repoName} (reuse existing)`) {
+				reuseExisting = true;
+			} else if (pick && pick !== "type a custom name") {
+				repoName = pick;
+			} else if (chosen) {
+				repoName = chosen;
+			} else {
 				return {
 					ok: false,
 					message: `The repo name "${repoName}" (and fallbacks ${alternatives.join(", ")}) are all taken. No free name could be chosen.`,
 				};
 			}
-			repoName = chosen;
-		} else if (githubCfg.autoCreateRepo) {
-			// autoCreateRepo: accept the first free alternative automatically.
-			notify(`"${repoName}" already exists; using "${chosen}" (autoCreateRepo).`);
+		} else if (chosen) {
+			// Non-interactive: autoCreateRepo accepts the first free alternative
+			// automatically; otherwise still fall back to it.
+			if (githubCfg.autoCreateRepo) {
+				notify(`"${repoName}" already exists; using "${chosen}" (autoCreateRepo).`);
+			}
 			repoName = chosen;
 		} else {
-			// autoCreateRepo off: propose the free alternative and let the user pick.
-			if (io.chooseRepo) {
-				const pick = await io.chooseRepo([chosen, ...alternatives.filter((a) => a !== chosen)]);
-				if (pick && pick !== "type a custom name") repoName = pick;
-				else repoName = chosen;
-			} else {
-				repoName = chosen;
-			}
+			return {
+				ok: false,
+				message: `The repo name "${repoName}" (and fallbacks ${alternatives.join(", ")}) are all taken. No free name could be chosen.`,
+			};
 		}
 	}
 
@@ -327,26 +424,31 @@ export async function runSeed(description, io = {}, opts = {}) {
 
 	// 5. Confirm repo creation (proposal / ask for confirmation).
 	if (io.confirmRepo && repoName) {
-		const confirmed = await io.confirmRepo(repoFullName, visibility);
+		const confirmed = await io.confirmRepo(repoFullName, visibility, { reuseExisting });
 		if (!confirmed) {
 			return { ok: false, message: `/loop-seed cancelled — repo creation for ${repoFullName} was not confirmed.` };
 		}
 	}
 
-	// 6. Create the repo via gh.
-	notify(`Creating repo ${repoFullName} (${visibility})...`);
-	const createRes = await gh([
-		"repo", "create", repoFullName,
-		"--" + visibility,
-		"--add-readme", // give it a main branch so cloning is clean
-	]);
-	if (!createRes.ok) {
-		return {
-			ok: false,
-			message: `Failed to create GitHub repo ${repoFullName}: ${createRes.stderr?.trim() || createRes.stdout?.trim() || createRes.exitCode}`,
-		};
+	// 6. Create the repo via gh — unless the user chose to reuse an existing
+	// repo of this name (in which case it already exists and we just clone it).
+	if (reuseExisting) {
+		notify(`Reusing existing repo: https://github.com/${repoFullName}`);
+	} else {
+		notify(`Creating repo ${repoFullName} (${visibility})...`);
+		const createRes = await gh([
+			"repo", "create", repoFullName,
+			"--" + visibility,
+			"--add-readme", // give it a main branch so cloning is clean
+		]);
+		if (!createRes.ok) {
+			return {
+				ok: false,
+				message: `Failed to create GitHub repo ${repoFullName}: ${createRes.stderr?.trim() || createRes.stdout?.trim() || createRes.exitCode}`,
+			};
+		}
+		notify(`Repo created: https://github.com/${repoFullName}`);
 	}
-	notify(`Repo created: https://github.com/${repoFullName}`);
 
 	// 7. Local workspace + clone.
 	const workspace = workspaceFor(repoName, owner, opts.workspacesDir);
@@ -354,11 +456,11 @@ export async function runSeed(description, io = {}, opts = {}) {
 
 	// 7b. Scaffold the React + Tailwind + TypeScript project into the repo (M3).
 	// The freshly-cloned repo only has a README (from `--add-readme`); we
-	// overwrite it and generate the full project skeleton. Project name is
-	// humanised from the repo slug for a friendly display name.
-	const projectName = humanizeName(repoName);
+	// overwrite it and generate the full project skeleton. The display name is
+	// the explicit project name when given, else humanised from the repo slug.
+	const displayName = projectName || humanizeName(repoName);
 	const scaffoldContext = buildContext({
-		projectName,
+		projectName: displayName,
 		owner,
 		repo: repoName,
 		description: descriptionText,
@@ -378,7 +480,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 	// fill project-specific values, and generate the git-ignored local-secrets
 	// scaffold (.pi/local.example.json + .pi/config.schema.json reference).
 	const configRes = await writeProjectConfig(workspace, {
-		projectName,
+		projectName: displayName,
 		repo: repoName,
 		owner,
 		demoUrl: scaffoldContext.demo_url,
@@ -405,14 +507,31 @@ export async function runSeed(description, io = {}, opts = {}) {
 		};
 	}
 
+	// 7d. Initial commit + push: make the scaffold the project's first commit on
+	// the default branch so origin reflects the real project (enables CI / GitHub
+	// Pages). Before this step the scaffold sat as uncommitted working-tree
+	// changes and origin only had the auto-generated README from --add-readme.
+	// `opts.commitInitial=false` disables the commit+push (tests / callers that
+	// handle it elsewhere).
+	const initialCommit = await commitAndPushInitial(workspace, repoFullName, DEFAULT_BRANCH, opts);
+	if (!initialCommit.ok) {
+		return { ok: false, message: initialCommit.message };
+	}
+	if (initialCommit.committed) {
+		notify(`Pushed initial commit (${initialCommit.sha}) to ${repoFullName}.`);
+	} else {
+		notify(`No changes to commit; origin already up to date (${repoFullName}).`);
+	}
+
 	// 8. `.pi/` state directory inside the workspace + initiation.json.
 	const createdAt = new Date().toISOString();
 	const state = await writeInitiationState(workspace, {
-		projectName: repoName,
+		projectName: displayName,
 		description: descriptionText,
 		owner,
 		repoName,
 		repoExisted: baseExists.exists,
+		reused: reuseExisting,
 		alternativesConsidered,
 		clarification,
 		workspace,
@@ -422,7 +541,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 	// 9. Record the active project.
 	await writeActiveProject(
 		{
-			projectName: repoName,
+			projectName: displayName,
 			owner,
 			repoName,
 			workspace,
@@ -475,9 +594,15 @@ export async function startLoopDetached(workspace) {
 	const logFile = join(workspace, ".pi", "logs", "loop.out");
 	try {
 		await mkdir(join(workspace, ".pi", "logs"), { recursive: true });
+		// Propagate the resolved provider/model into the detached loop process so
+		// it (and every persona it spawns) defaults to the intended model even
+		// though nohup does not inherit the interactive session's PI_* env vars.
+		const { providerEnv } = await import("../loop/provider-env.js");
+		const env = providerEnv();
 		// Redirect output to the loop log and print the background PID.
 		const shell = await execa("bash", ["-c", `nohup node "${loopScript}" > "${logFile}" 2>&1 & echo $!`], {
 			cwd: workspace,
+			env,
 			reject: false,
 		});
 		const pid = parseInt((shell.stdout || "").trim(), 10);

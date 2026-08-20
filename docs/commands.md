@@ -16,9 +16,12 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 
 ## `/loop-seed <description>`
 
-Initiates a new project: one-project-per-machine enforcement → clarification →
-repo naming → repo creation → local clone → scaffold → config copy → active-project
-record → auto-start the loop.
+Initiates a new project: one-project-per-machine enforcement → **explicit project
+name** → clarification → repo naming → repo creation → local clone → scaffold →
+config copy → active-project record → auto-start the loop.
+
+The command asks for an explicit **project name** (used for the repo slug and
+display name); the `<description>` argument (optional) is used for clarification.
 
 ```bash
 /loop-seed Build a markdown notes app with tags and search

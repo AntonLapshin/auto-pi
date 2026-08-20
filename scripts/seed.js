@@ -6,7 +6,7 @@
  * shared core in `extensions/seed/core.js`. Suitable for `npm run seed` outside
  * an interactive Pi session.
  *
- *   npm run seed -- "Build a markdown notes app"      # interactive prompts
+ *   npm run seed -- "Build a markdown notes app"      # interactive prompts (incl. project name)
  *   npm run seed -- "Build a markdown notes app" --yes # non-interactive (assumptions)
  *
  * Flags:
@@ -27,6 +27,9 @@ function usage() {
 		"Args:",
 		"  <project description>  one-line idea used for clarification + repo naming",
 		"  --yes (or --assume)    skip prompts, proceed with assumptions",
+		"",
+		"Interactively, you'll also be asked for an explicit project name (used for",
+		"the repo slug and display name).",
 		"",
 		"Examples:",
 		"  npm run seed -- \"Build a markdown notes app\"",
@@ -52,7 +55,7 @@ function ask(question, choices) {
 	});
 }
 
-async function run(description, assume) {
+async function run(description, projectName, assume) {
 	const io = {
 		notify: (text) => process.stdout.write(`[seed] ${text}\n`),
 		askQuestions: async (questions) => {
@@ -85,7 +88,7 @@ async function run(description, assume) {
 		},
 	};
 
-	const result = await runSeed(description, io);
+	const result = await runSeed(description, io, { projectName });
 	process.stdout.write(`\n${result.message}\n`);
 	process.exit(result.ok ? 0 : 1);
 }
@@ -99,7 +102,9 @@ async function main() {
 	const assume = argv.includes("--yes") || argv.includes("--assume");
 	const descriptionArg = argv.find((a) => !a.startsWith("--")) || "";
 	const description = descriptionArg || (assume ? "" : await ask("Project description", undefined));
-	await run(description, assume);
+	// Ask for the project name explicitly (unless --yes / --assume).
+	const projectName = assume ? "" : await ask("Project name (used for the repo slug)", description || "my-project");
+	await run(description, projectName, assume);
 }
 
 main().catch((err) => {
