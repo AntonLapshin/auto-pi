@@ -10,6 +10,7 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 | `orchestrator.js`  | The loop core: read config, acquire lock, check active project/stop, scan state, dispatch, build context, run persona, log, sleep, repeat (plan.md §13.1). Also `writeStopFile` / `isStopped` / `acquireLock` / `releaseLock` / `checkLock`. |
 | `state-scanner.js` | Reads open issues, open PRs, CI status, labels, and budget usage from GitHub (plan.md §13.1 step 5). |
 | `dispatcher.js`    | Decides the next persona per the §15 dispatch order. |
+| `pm-context.js`    | PM context packer (M7, plan.md §21.1): reads manifest/project-state/changelog, open issue + PR summaries, recent merged PRs, and policy excerpts for the PM persona. |
 | `persona-runner.js`| Launches a fresh Pi persona session: unique run ID, no session persistence, context passed as a file, output captured in the run dir (plan.md §14 / §29.3). |
 | `constants.js`     | Shared paths (`.pi/state/loop.lock`, `.pi/state/stop`, `.pi/logs/runs.jsonl`, `.pi/runs/`) and decision/label constants. |
 | `index.ts`         | Registers the `/loop` and `/stop` slash commands. |

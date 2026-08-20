@@ -62,9 +62,75 @@ export const LABELS = {
 	NEEDS_HUMAN: "pi:needs-human",
 	BLOCKED: "pi:blocked",
 	PM_NOTE: "pi:pm-note",
+	NEEDS_PM: "pi:needs-pm",
 	APPROVED: "pi:approved",
 	MERGE_READY: "pi:merge-ready",
 	CHANGES_REQUESTED: "pi:changes-requested",
 	REVIEW_REQUESTED: "pi:review-requested",
 	TYPE_INFRA: "type:infra",
 };
+
+/**
+ * Issue size labels (plan.md §23.1). The PM creates only XS/S issues so each
+ * fits in a single Engineer session. Larger work is split into a milestone
+ * and broken down further (plan.md §16.3).
+ */
+export const SIZES = {
+	XS: "size:xs",
+	S: "size:s",
+	M: "size:m",
+	L: "size:l",
+};
+
+/**
+ * Issue type labels (plan.md §23.1). `TYPE_INFRA` is defined above; the rest
+ * are added here for PM issue creation.
+ */
+export const TYPES = {
+	FEATURE: "type:feature",
+	BUG: "type:bug",
+	REFACTOR: "type:refactor",
+	TEST: "type:test",
+	INFRA: "type:infra",
+};
+
+/**
+ * Milestone label prefix. Issues are labelled `milestone:{slug}` so the PM
+ * can group work and the Engineer can scope PRs (plan.md §23.1).
+ */
+export const MILESTONE_LABEL_PREFIX = "milestone:";
+
+/**
+ * PM note marker in an issue body (plan.md §16.2). Matches lines like:
+ *   `PI-NOTE persona=PM reason=scope-too-large action=split`
+ * The persona=PM part is required; extra key=value attributes are captured.
+ */
+export const PM_NOTE_RE = /PI-NOTE\s+persona=PM\b([^\n]*)/gi;
+
+/**
+ * Marker a PM writes into an issue body to resolve a note after handling it
+ * (plan.md §16.2). Once present, the note is considered resolved and the
+ * `pi:pm-note` / `pi:needs-pm` labels are removed.
+ */
+export const PM_NOTE_RESOLVED = "PI-NOTE-RESOLVED";
+
+/**
+ * Issue idempotency marker (plan.md §16.3): `<!-- pi:issue-id M1-T3 -->`.
+ * Written into a created issue body so the PM can detect duplicates on later
+ * cycles and avoid re-creating the same issue.
+ */
+export const ISSUE_ID_RE = /<!--\s*pi:issue-id\s+(M\d+)-T(\d+)\s*-->/;
+
+/**
+ * Milestone marker in a manifest entry: `<!-- pi:milestone M1 -->`.
+ * Used to track which milestone an issue belongs to.
+ */
+export const MILESTONE_MARKER_RE = /<!--\s*pi:milestone\s+(M\d+)\s*-->/;
+
+/**
+ * Milestone label (plan.md §23.1): `milestone:{slug}` where slug is lowercase
+ * milestone id (e.g. `milestone:m1`).
+ */
+export function milestoneLabel(id) {
+	return MILESTONE_LABEL_PREFIX + String(id || "").toLowerCase();
+}

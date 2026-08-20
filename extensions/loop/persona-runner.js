@@ -131,13 +131,17 @@ export function buildContext({ config, state, decision }) {
  *
  * @param {string} workspace  absolute project root
  * @param {string} runId
- * @param {object} payload    { persona, decision, config, state }
+ * @param {object} payload    { persona, decision, config, state, buildContext? }
+ *                            `buildContext` is an optional custom context
+ *                            builder (e.g. the PM packer from M7); when absent
+ *                            the generic minimal builder is used.
  * @returns {Promise<{ runDir: string, contextFile: string }>}
  */
 export async function prepareRun(workspace, runId, payload) {
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
-	const context = buildContext(payload);
+	const builder = payload.buildContext || buildContext;
+	const context = await builder(payload);
 	const contextFile = join(runDir, "context.md");
 	await writeFile(contextFile, context, "utf8");
 	return { runDir, contextFile };
