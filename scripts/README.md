@@ -1,7 +1,7 @@
 # scripts
 
 Fallback Node.js CLI entries for the harness commands. They mirror the interactive
-slash commands (`/seed`, `/loop`, `/stop`, `/status`, `/logs`, `/resume`,
+slash commands (`/seed`, `/loop`, `/stop`, `/status`, `/logs`, `/loop-resume`,
 `/sync-config`, `/doctor`) so the harness can be driven from `npm run <cmd>` or
 `node scripts/<cmd>.js` outside an interactive Pi session.
 

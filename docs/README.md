@@ -5,7 +5,7 @@ User and operator documentation for the auto-pi harness.
 - `installation.md` — prerequisites and `pi install`
 - `github-token.md` — token scopes (`repo`, `workflow`) and `gh auth login`
 - `configuration.md` — `config.json` reference + config validation / `/sync-config`
-- `commands.md` — `/seed`, `/stop`, `/status`, `/logs`, `/resume`, `/sync-config`, `/doctor`, `/loop`
+- `commands.md` — `/seed`, `/stop`, `/status`, `/logs`, `/loop-resume`, `/sync-config`, `/doctor`, `/loop`
 - `personas.md` — PM, Engineer, Review Engineer + context packs
 - `github-pages.md` — Pages deployment + health check
 - `telegram.md` — optional Telegram lifecycle notifications

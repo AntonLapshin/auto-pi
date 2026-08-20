@@ -52,7 +52,7 @@ with a repeated-failure reason. A budget guard (`skills/budget-guard`) enforces
 the per-cycle/per-day/cost limits and the per-persona token caps. Config is
 validated against the schema at `/seed` and loop start, and `/sync-config`
 recopies defaults while preserving project values. The remaining commands
-(`/status`, `/logs`, `/resume`, `/sync-config`) are implemented, all policies are
+(`/status`, `/logs`, `/loop-resume`, `/sync-config`) are implemented, all policies are
 written (`policies/`), and the docs are complete (`docs/`). See
 [`todo/README.md`](todo/README.md) for the milestone plan.
 
@@ -94,7 +94,7 @@ pi install /path/to/auto-pi
 Pi registers the package's extensions from the `pi` block in `package.json`, which
 loads the provider extensions and the harness slash commands. After installation the
 following commands are available (interactively as `/seed`, `/stop`, `/status`,
-`/logs`, `/resume`, `/sync-config`, `/doctor`):
+`/logs`, `/loop-resume`, `/sync-config`, `/doctor`):
 
 | Command       | Purpose                                      | Milestone |
 |---------------|----------------------------------------------|-----------|
@@ -102,7 +102,7 @@ following commands are available (interactively as `/seed`, `/stop`, `/status`,
 | `/stop`       | Stop the autonomous loop                     | M6        |
 | `/status`     | Active project, loop, and persona status     | M13       |
 | `/logs`       | Show the latest local logs                   | M13       |
-| `/resume`     | Resume a stopped/paused project's loop       | M13       |
+| `/loop-resume` | Resume a stopped/paused project's loop       | M13       |
 | `/sync-config`| Recopy config defaults, preserving project values | M13 |
 | `/doctor`     | Validate environment prerequisites           | M1 (implemented) |
 
@@ -111,7 +111,7 @@ non-interactive use (see [`scripts/`](scripts)).
 
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
-> (`extensions/harness.ts` for `/status`, `/logs`, `/resume`, `/sync-config`;
+> (`extensions/harness.ts` for `/status`, `/logs`, `/loop-resume`, `/sync-config`;
 > `extensions/seed` for `/seed`; `extensions/loop` for `/loop`/`/stop`;
 > `extensions/doctor` for `/doctor`) — the `pi` block in `package.json` only declares resource
 > directories, matching the existing repo convention.

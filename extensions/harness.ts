@@ -1,7 +1,7 @@
 /**
  * auto-pi harness commands.
  *
- * Registers the `/status`, `/logs`, `/resume`, and `/sync-config` slash commands
+ * Registers the `/status`, `/logs`, `/loop-resume`, and `/sync-config` slash commands
  * (M13). The other commands are implemented by their own extensions: `/doctor`
  * in `extensions/doctor` (M1), `/seed` in `extensions/seed` (M2), and `/loop` +
  * `/stop` in `extensions/loop` (M6).
@@ -87,8 +87,10 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// --- /resume (M13) ---
-	pi.registerCommand("resume", {
+	// --- /loop-resume (M13) ---
+	// Named `/loop-resume` (not `/resume`) to avoid conflicting with pi's built-in
+	// `/resume` interactive command (switch session).
+	pi.registerCommand("loop-resume", {
 		description:
 			"Resume a stopped/paused project's loop (removes the stop marker and starts the loop if not running)",
 		handler: async (args, ctx) => {

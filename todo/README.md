@@ -27,7 +27,7 @@ The dependency order forms a sequential build where earlier stages unlock later 
 - **Critical path to a working loop:** M0 → M2 → M3 → M4 → M5 → M6 (loop runs, then M7/M8/M9 make it autonomous).
 - **Personas (M7, M8, M9)** are the core value: PM breaks work into small tested slices; Engineer implements + merges; Review Engineer enforces physically verifiable quality and 100% core coverage.
 - **M12 (Pilot)** is the validation gate — the plan's §27 lifecycle example is the canonical run-through.
-- **M13 (Hardening)** productionizes with budget limits, rate limits, retries, and the remaining `/status`, `/logs`, `/resume`, `/sync-config` commands.
+- **M13 (Hardening)** productionizes with budget limits, rate limits, retries, and the remaining `/status`, `/logs`, `/loop-resume`, `/sync-config` commands.
 
 ## Cross-cutting requirements (apply throughout)
 
@@ -35,4 +35,4 @@ The dependency order forms a sequential build where earlier stages unlock later 
 - Fresh persona sessions only — personas never remember prior conversations (M6).
 - Core business logic in `src/core` with 100% coverage; UI stays a thin, dumb layer (M3, M7–M9).
 - No secrets in logs, context, or PRs (M10, M13).
-- `/seed` and `/stop` are the minimum required commands; `/status`, `/doctor`, `/logs`, `/resume`, `/sync-config` strongly recommended (M1, M3, M13).
+- `/seed` and `/stop` are the minimum required commands; `/status`, `/doctor`, `/logs`, `/loop-resume`, `/sync-config` strongly recommended (M1, M3, M13).

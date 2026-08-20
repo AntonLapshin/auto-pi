@@ -27,19 +27,19 @@ backs off on rate limits (M13). If you see repeated `gh retry ...` lines, check:
 
 The loop stops after `loop.maxConsecutiveFailures` (default 3) consecutive failed
 cycles. Check `.pi/logs/errors.jsonl` and the run records to find the root cause,
-fix it, then `/resume` (or `npm run resume`).
+fix it, then `/loop-resume` (or `npm run resume`).
 
 ## The loop stops with a budget reason
 
 The loop stops when `limits.maxTokensPerDay` / `maxCostPerDayUsd` is reached.
 Check `/status` for budget usage. To continue, raise the limit in
-`.pi/config.json` and `/resume`.
+`.pi/config.json` and `/loop-resume`.
 
 ## An issue keeps failing to implement
 
 The harness caps repeated attempts per issue (`limits.maxIssueAttempts`, default
 3). Beyond that it labels the issue `pi:blocked` + `pi:needs-human` and the loop
-waits. Review the issue, fix the blocker, remove the labels, and `/resume`.
+waits. Review the issue, fix the blocker, remove the labels, and `/loop-resume`.
 
 ## A PR has a merge conflict
 

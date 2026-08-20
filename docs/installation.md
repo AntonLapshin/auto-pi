@@ -35,7 +35,7 @@ which loads the provider extensions and the harness slash commands.
 ## Verify
 
 After installation, the following commands are available (interactively as
-`/seed`, `/stop`, `/status`, `/logs`, `/resume`, `/sync-config`, `/doctor`):
+`/seed`, `/stop`, `/status`, `/logs`, `/loop-resume`, `/sync-config`, `/doctor`):
 
 | Command | Purpose | Milestone |
 |---------|---------|-----------|
@@ -43,7 +43,7 @@ After installation, the following commands are available (interactively as
 | `/stop` | Stop the autonomous loop | M6 |
 | `/status` | Active project, loop, and persona status | M13 |
 | `/logs` | Show the latest local logs | M13 |
-| `/resume` | Resume a stopped/paused project's loop | M13 |
+| `/loop-resume` | Resume a stopped/paused project's loop | M13 |
 | `/sync-config` | Recopy config defaults, preserving project values | M13 |
 | `/doctor` | Validate environment prerequisites | M1 |
 

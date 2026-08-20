@@ -9,7 +9,7 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 | `/stop` | Stop the autonomous loop | `npm run stop` |
 | `/status` | Show active project, loop, last run, issues/PRs, budget | `npm run status` |
 | `/logs` | Show the latest local logs | `npm run logs` |
-| `/resume` | Resume a stopped/paused project's loop | `npm run resume` |
+| `/loop-resume` | Resume a stopped/paused project's loop | `npm run resume` |
 | `/sync-config` | Recopy config defaults, preserving project values | `npm run sync-config` |
 | `/doctor` | Validate environment prerequisites | `npm run doctor` |
 | `/loop` | Start (or report) the autonomous loop | `npm run loop` |
@@ -47,13 +47,14 @@ Shows the latest local logs (prefers `latest.log`, then `summary.md`, then
 /logs --tail 100
 ```
 
-## `/resume`
+## `/loop-resume`
 
 Removes the stop marker and starts the loop (if not already running), so a
-paused project resumes.
+paused project resumes. (Named `/loop-resume` to avoid clashing with pi's
+built-in `/resume` session-switch command.)
 
 ```bash
-/resume
+/loop-resume
 ```
 
 ## `/sync-config`

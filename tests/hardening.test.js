@@ -5,7 +5,7 @@
  * branch cleanup, conflict detection, issue-attempt limits), the budget guard
  * (per-cycle/per-day/cost limits + consecutive-failure limit + per-persona
  * token caps), config validation, and the new commands (`/status`, `/logs`,
- * `/resume`, `/sync-config`).
+ * `/loop-resume`, `/sync-config`).
  */
 
 import { test } from "node:test";

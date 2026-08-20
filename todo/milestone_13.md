@@ -34,8 +34,8 @@ Harden the harness against real-world failure modes and productionize the remain
 ### Remaining commands
 - [ ] `/status` — active project, loop status, last persona run, open issues/PRs, budget usage (plan.md §3.3).
 - [ ] `/logs` — show latest local logs.
-- [ ] `/resume {project}` — resume a stopped/paused project if not completed.
-- [ ] Wire `/logs`, `/resume`, `/sync-config` into extension index + `package.json` commands + fallback scripts.
+- [ ] `/loop-resume {project}` — resume a stopped/paused project if not completed.
+- [ ] Wire `/logs`, `/loop-resume`, `/sync-config` into extension index + `package.json` commands + fallback scripts.
 
 ### Documentation
 - [ ] Complete docs: installation, github-token, configuration, commands, personas, github-pages, telegram, troubleshooting (plan.md §4 `docs/`).
@@ -46,5 +46,5 @@ Harden the harness against real-world failure modes and productionize the remain
 - Loop survives transient failures without crashing.
 - Budget/rate limits stop the loop gracefully with clear logs.
 - Config is validated; invalid config fails fast at `/seed`/loop start.
-- `/status`, `/logs`, `/resume`, `/sync-config` all work.
+- `/status`, `/logs`, `/loop-resume`, `/sync-config` all work.
 - Security: no secrets in logs/contexts/PRs.
