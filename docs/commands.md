@@ -26,7 +26,20 @@ record → auto-start the loop.
 
 ## `/loop-stop`
 
-Writes the stop file; the loop exits at its next cycle.
+Writes the stop file (the loop exits at its next cycle) **and clears the
+active-project record**. Stopping "finishes" the project and releases the
+one-project-per-machine slot, so you can immediately run `/loop-seed` again to
+start a new project.
+
+```bash
+/loop-stop
+npm run stop
+```
+
+> Note: clearing the active-project record means a stopped project can no
+> longer be resumed with `/loop-resume`. If you only want to pause the loop
+> while keeping the project active, stop the loop process directly (kill the
+> PID from `/loop-status`); the active-project record stays intact.
 
 ## `/loop-status`
 
@@ -52,6 +65,9 @@ Shows the latest local logs (prefers `latest.log`, then `summary.md`, then
 Removes the stop marker and starts the loop (if not already running), so a
 paused project resumes. (Named `/loop-resume` to avoid clashing with pi's
 built-in `/resume` session-switch command.)
+
+Resume requires an active project record. After `/loop-stop` clears the record,
+resume reports that no active project exists and points you to `/loop-seed`.
 
 ```bash
 /loop-resume

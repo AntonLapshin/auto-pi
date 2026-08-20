@@ -82,6 +82,11 @@ the loop's state, lock file, and budget accounting unambiguous. `/loop-seed` ref
 while another project is active, with a clear message. See
 [`extensions/seed`](extensions/seed) (M2) for the enforcement logic.
 
+`/loop-stop` (or `npm run stop`) "finishes" the active project: it writes the stop file
+(so the loop exits at its next cycle) **and clears the active-project record**
+(`~/.auto-pi/current-project.json`), releasing the one-project-per-machine slot so you can
+immediately run `/loop-seed` again.
+
 ## Installation
 
 Install the harness into your Pi environment by pointing `pi install` at this repo

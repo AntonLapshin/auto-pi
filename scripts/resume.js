@@ -41,6 +41,7 @@ async function main() {
 	const activeRes = await readActiveProject();
 	if (!activeRes.ok) {
 		process.stderr.write(`[resume] ${activeRes.error}\n`);
+		process.stderr.write(`[resume] Use /loop-seed (npm run seed) to start a new project.\n`);
 		process.exit(1);
 	}
 	const workspace = activeRes.active.workspace;

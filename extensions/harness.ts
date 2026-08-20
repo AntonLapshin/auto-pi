@@ -96,7 +96,10 @@ export default function (pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const activeRes = await readActiveProject();
 			if (!activeRes.ok) {
-				ctx.ui.notify(activeRes.error, "error");
+				ctx.ui.notify(
+					`${activeRes.error} Use /loop-seed to start a new project.`,
+					"error",
+				);
 				return;
 			}
 			const workspace = activeRes.active.workspace;

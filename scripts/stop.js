@@ -12,7 +12,7 @@
 
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { readActiveProject, writeStopFile } from "../extensions/loop/orchestrator.js";
+import { readActiveProject, writeStopFile, clearActiveProject } from "../extensions/loop/orchestrator.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,6 +26,15 @@ async function main() {
 	const stopFile = await writeStopFile(workspace);
 	process.stdout.write(`[stop] Stop file written: ${stopFile}\n`);
 	process.stdout.write(`[stop] The loop will exit at the next cycle (or clean up a stale lock).\n`);
+	// Stopping "finishes" the project: release the one-project-per-machine slot
+	// so `/loop-seed` can start a new project (previously the active-project
+	// record lingered and `/loop-seed` kept refusing).
+	const cleared = await clearActiveProject();
+	if (cleared.ok) {
+		process.stdout.write(`[stop] Active-project record cleared — you can now run /loop-seed again.\n`);
+	} else {
+		process.stderr.write(`[stop] warning: ${cleared.message}\n`);
+	}
 	process.exit(0);
 }
 

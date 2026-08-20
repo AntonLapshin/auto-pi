@@ -161,6 +161,39 @@ test("seed refuses when another project is active (one project per machine)", as
 	assert.match(res.message, /existing-project/, "refusal names the active project");
 });
 
+test("stopping clears the active-project record so seed can run again", async () => {
+	// Regression: `/loop-stop` / `npm run stop` previously only wrote the stop
+	// file and left current-project.json in place, so `/loop-seed` kept refusing
+	// with "already active" even after the loop was stopped. Stopping must clear
+	// the active-project record.
+	const { clearActiveProject } = await import("../extensions/loop/orchestrator.js");
+	const { writeFile, access } = await import("node:fs/promises");
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-stop-"));
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(
+		cpFile,
+		JSON.stringify({
+			projectName: "existing-project",
+			repo: "octocat/existing-project",
+			workspace: join(dir, "w"),
+			startedAt: new Date().toISOString(),
+			status: "active",
+		}),
+	);
+
+	const cleared = await clearActiveProject(cpFile);
+	assert.equal(cleared.ok, true, "clearActiveProject reports success");
+
+	// The record file must no longer exist — this is the regression: previously
+	// stopping left current-project.json in place, so `/loop-seed` kept refusing
+	// with "already active" even after the loop was stopped.
+	await assert.rejects(
+		access(cpFile),
+		/ENOENT/,
+		"current-project.json is removed after stopping",
+	);
+});
+
 test("doctor exit code reflects the overall pass/fail status", () => {
 	// The CLI must exit non-zero when any required check fails. We force a
 	// guaranteed failure by pointing PI_ env to an impossible model and removing

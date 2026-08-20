@@ -191,6 +191,26 @@ export async function readActiveProject(currentProjectFile = CURRENT_PROJECT_FIL
 }
 
 /**
+ * Clear the per-machine active-project record (current-project.json).
+ *
+ * `/loop-stop` / `npm run stop` are documented as "finish that project" — the
+ * user is told to run them before `/loop-seed` again. Stopping must therefore
+ * release the one-project-per-machine slot by removing the active-project
+ * record, otherwise `/loop-seed` keeps refusing with the "already active"
+ * error even after the loop has been stopped.
+ *
+ * Returns { ok, message }.
+ */
+export async function clearActiveProject(currentProjectFile = CURRENT_PROJECT_FILE) {
+	try {
+		await rm(currentProjectFile, { force: true });
+		return { ok: true, message: `Active-project record cleared: ${currentProjectFile}` };
+	} catch (err) {
+		return { ok: false, message: `Could not clear active-project record ${currentProjectFile}: ${err?.message || err}` };
+	}
+}
+
+/**
  * Check whether the project's initiation/state requires a human decision.
  * Looks for a `pi:needs-human` / `pi:blocked` open issue (plan.md §15 step 3).
  * Also honours an explicit needs-human marker in initiation.json.

@@ -15,6 +15,7 @@ import {
 	readActiveProject,
 	checkLock,
 	writeStopFile,
+	clearActiveProject,
 } from "./orchestrator.js";
 
 export default function (pi: ExtensionAPI) {
@@ -85,7 +86,16 @@ export default function (pi: ExtensionAPI) {
 			}
 			const workspace = activeRes.active.workspace;
 			const stopFile = await writeStopFile(workspace);
-			notify(`Stop file written: ${stopFile}. The loop will exit at its next cycle.`, "success");
+			notify(`Stop file written: ${stopFile}. The loop will exit at its next cycle.`);
+			// Stopping "finishes" the project: release the one-project-per-machine
+			// slot so `/loop-seed` can start a new project (previously the
+			// active-project record lingered and `/loop-seed` kept refusing).
+			const cleared = await clearActiveProject();
+			if (cleared.ok) {
+				notify("Active-project record cleared — you can now run /loop-seed again.", "success");
+			} else {
+				notify(cleared.message, "warning");
+			}
 		},
 	});
 }
