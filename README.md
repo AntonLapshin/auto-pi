@@ -22,7 +22,10 @@ orchestrator (M6), the PM persona (M7), and the Engineer persona (M8) — issue
 implementation, testing, PR creation, review-comment addressing, and squash
 merge. The Review Engineer persona (M9) — PR verification with physically
 verifiable evidence, missing-test detection, and approve/request-changes flow —
-is implemented. The remaining loop commands report "not implemented" until
+is implemented. Local logging and execution summary (M10) — `runs.jsonl`,
+`errors.jsonl`, `summary.md`/`summary.jsonl`, `latest.log`, per-day/per-cycle
+token accounting, secret redaction, and config-driven rotation — is implemented.
+The remaining loop commands report "not implemented" until
 later milestones fill them in. See
 [`todo/README.md`](todo/README.md) for the milestone plan.
 

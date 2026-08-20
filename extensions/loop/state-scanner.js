@@ -21,6 +21,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { RUNS_LEDGER_REL } from "./constants.js";
+import { readUsage, estimateCost } from "../../skills/logging/core.js";
 
 /**
  * Run a `gh` command safely. @returns {{ ok, stdout, stderr, exitCode }}
@@ -141,15 +142,35 @@ export async function scanGithubState(owner, repo, ghFn = gh) {
 }
 
 /**
- * Read budget usage from the local run ledger (plan.md §10). The ledger is a
- * JSONL file with one line per persona invocation; each line carries token /
- * cost accounting when the persona runner reports it (M10 fills these in fully;
- * M6 reads whatever is present and defaults to zero).
+ * Read budget usage from the local run ledger + token-usage accumulation
+ * (plan.md §10, M10). The run ledger (`runs.jsonl`) carries the plan.md §20.1
+ * run records with `tokensInput`/`tokensOutput`/`tokensTotal`; the usage
+ * ledger (`usage.jsonl`) holds per-day/per-cycle accumulation. Sums the most
+ * recent available source (falls back to the run ledger when usage.jsonl is
+ * absent, e.g. older workspaces).
  *
  * @param {string} workspace  absolute path to the project root
  * @returns {Promise<{ tokensUsed: number, costUsd: number, runs: number }>}
  */
 export async function readBudgetUsage(workspace) {
+	// Prefer the per-day accumulation ledger (M10) for accurate per-day totals.
+	// Only use it when it actually has data; otherwise fall back to the run
+	// ledger (which also preserves backward compatibility with older workspaces
+	// and the legacy `tokensUsed`/`costUsd` record shape).
+	try {
+		const usage = await readUsage(workspace);
+		const today = new Date().toISOString().slice(0, 10);
+		const todayUsage = usage.byDay?.[today] || usage.totals;
+		const tokensUsed = Number(todayUsage.tokensTotal) || 0;
+		const runs = Number(todayUsage.runs) || 0;
+		if (runs > 0) {
+			const costUsd = estimateCost(tokensUsed);
+			return { tokensUsed, costUsd, runs };
+		}
+	} catch {
+		// fall through to the run-ledger scan below
+	}
+
 	const ledgerPath = join(workspace, RUNS_LEDGER_REL);
 	let tokensUsed = 0;
 	let costUsd = 0;
@@ -162,7 +183,7 @@ export async function readBudgetUsage(workspace) {
 			try {
 				const entry = JSON.parse(trimmed);
 				runs += 1;
-				tokensUsed += Number(entry.tokensUsed || entry.tokens_total || 0) || 0;
+				tokensUsed += Number(entry.tokensUsed || entry.tokensTotal || entry.tokens_total || 0) || 0;
 				costUsd += Number(entry.costUsd || entry.cost_usd || 0) || 0;
 			} catch {
 				// skip malformed lines
@@ -171,6 +192,7 @@ export async function readBudgetUsage(workspace) {
 	} catch {
 		// no ledger yet — zero usage
 	}
+	if (!costUsd) costUsd = estimateCost(tokensUsed);
 	return { tokensUsed, costUsd, runs };
 }
 

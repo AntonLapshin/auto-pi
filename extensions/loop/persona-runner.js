@@ -23,7 +23,13 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
-import { RUNS_DIR_REL, RUN_LEDGER_VERSION } from "./constants.js";
+import { RUNS_DIR_REL } from "./constants.js";
+import {
+	appendRunRecord,
+	appendErrorRecord,
+	accumulateTokens,
+	buildRunRecord,
+} from "../../skills/logging/core.js";
 
 /**
  * Generate a unique run ID: `{persona}-{yyyymmdd-hhmmss}-{shortId}`.
@@ -174,7 +180,6 @@ export async function runPersona({
 	env,
 }) {
 	const { execa } = await import("execa");
-	const { appendFile } = await import("node:fs/promises");
 
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
@@ -215,21 +220,45 @@ export async function runPersona({
 	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch(() => {});
 	await writeFile(join(runDir, "stderr.txt"), res.stderr || "", "utf8").catch(() => {});
 
-	// Append a ledger line (M10 fills in token/cost accounting).
-	const entry = {
-		version: RUN_LEDGER_VERSION,
+	// M10: token/cost accounting. Parse token usage from pi output when present
+	// (best-effort; defaults to 0 when the CLI does not report it).
+	const tokens = parseTokenUsage(res.stdout || "", res.stderr || "");
+	const durationSeconds = Math.max(0, (Date.parse(finishedAt) - Date.parse(startedAt)) / 1000);
+	const gitSha = await currentGitSha(workspace);
+
+	// Append a full run record (plan.md §20.1 schema) and accumulate token usage.
+	const record = buildRunRecord({
 		runId,
 		persona,
-		decision: "run",
+		trigger: "loop",
+		projectName: config?.project?.name || "",
+		repo: [config?.project?.owner, config?.project?.repo].filter(Boolean).join("/"),
+		status: res.exitCode === 0 ? "ok" : "error",
+		action: res.exitCode === 0 ? "ran" : "error",
+		reason: res.exitCode === 0 ? "completed" : "persona session failed",
+		error: res.exitCode === 0 ? "" : (res.stderr || "").slice(0, 2000),
 		startedAt,
 		finishedAt,
-		exitCode: res.exitCode,
-		ok: res.exitCode === 0,
-		runDir: join(RUNS_DIR_REL, runId),
-		tokensUsed: 0,
-		costUsd: 0,
-	};
-	await appendFile(join(workspace, RUNS_LEDGER_REL), JSON.stringify(entry) + "\n", "utf8").catch(() => {});
+		tokensInput: tokens.tokensInput,
+		tokensOutput: tokens.tokensOutput,
+		tokensTotal: tokens.tokensTotal,
+		durationSeconds,
+		gitSha,
+	});
+	await appendRunRecord(workspace, record, config).catch(() => {});
+	await accumulateTokens(workspace, {
+		tokensInput: tokens.tokensInput,
+		tokensOutput: tokens.tokensOutput,
+		tokensTotal: tokens.tokensTotal,
+		runs: 1,
+	}, config).catch(() => {});
+	if (res.exitCode !== 0) {
+		await appendErrorRecord(workspace, {
+			runId,
+			persona,
+			error: (res.stderr || res.stdout || "").slice(0, 2000),
+		}, config).catch(() => {});
+	}
 
 	return {
 		ok: res.exitCode === 0,
@@ -237,5 +266,61 @@ export async function runPersona({
 		stdout: res.stdout || "",
 		stderr: res.stderr || "",
 		runDir,
+		tokens,
 	};
+}
+
+/**
+ * Best-effort parse of token usage from pi CLI output. Looks for common
+ * `X input tokens / Y output tokens` or `tokens: {...}` markers in stdout/stderr.
+ * @returns {{ tokensInput: number, tokensOutput: number, tokensTotal: number }}
+ */
+export function parseTokenUsage(stdout, stderr) {
+	const text = `${stdout || ""}\n${stderr || ""}`;
+	let tokensInput = 0;
+	let tokensOutput = 0;
+
+	// JSON shape: tokens: { input: N, output: M } or { prompt: N, completion: M }
+	const jsonMatch = text.match(/tokens\s*[:=]\s*\{([^}]*)\}/i);
+	if (jsonMatch) {
+		const body = jsonMatch[1];
+		const inM = body.match(/"?(?:input|prompt)"?\s*[:=]\s*(\d+)/i);
+		const outM = body.match(/"?(?:output|completion)"?\s*[:=]\s*(\d+)/i);
+		tokensInput = inM ? Number(inM[1]) : 0;
+		tokensOutput = outM ? Number(outM[1]) : 0;
+	}
+
+	// Plain shape: "N input tokens" / "M output tokens"
+	if (!tokensInput) {
+		const inM = text.match(/(\d+)\s+input\s+tokens/i);
+		tokensInput = inM ? Number(inM[1]) : 0;
+	}
+	if (!tokensOutput) {
+		const outM = text.match(/(\d+)\s+output\s+tokens/i);
+		tokensOutput = outM ? Number(outM[1]) : 0;
+	}
+
+	// Plain shape: "N tokens used" → treat as total.
+	let tokensTotal = tokensInput + tokensOutput;
+	if (!tokensTotal) {
+		const totM = text.match(/(\d+)\s+tokens?\s+used/i);
+		if (totM) tokensTotal = Number(totM[1]);
+	}
+
+	return { tokensInput, tokensOutput, tokensTotal };
+}
+
+/** Best-effort current git SHA of the workspace (empty when not a git repo). */
+async function currentGitSha(workspace) {
+	try {
+		const { execa } = await import("execa");
+		const res = await execa("git", ["rev-parse", "HEAD"], {
+			cwd: workspace,
+			reject: false,
+			timeout: 10000,
+		});
+		return res.exitCode === 0 ? (res.stdout || "").trim() : "";
+	} catch {
+		return "";
+	}
 }

@@ -41,6 +41,14 @@ import {
 	RUNS_LEDGER_REL,
 	LOCK_VERSION,
 } from "./constants.js";
+import {
+	appendRunRecord,
+	appendErrorRecord,
+	writeSummary,
+	buildRunRecord,
+	readErrors,
+	lastRun,
+} from "../../skills/logging/core.js";
 /** Default per-machine active-project record (matches seed constants). */
 export const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
 
@@ -219,6 +227,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 	// 1. Read config.
 	const cfgRes = await readConfig(workspace);
 	if (!cfgRes.ok) {
+		await logCycleError(workspace, { error: cfgRes.error, action: "error" }, config);
 		return { ok: false, action: "error", message: cfgRes.error };
 	}
 	const config = cfgRes.config;
@@ -236,6 +245,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		// 3. Check active project.
 		const activeRes = await readActiveProject(opts.currentProjectFile);
 		if (!activeRes.ok) {
+			await logCycleError(workspace, { error: activeRes.error, action: "error" }, config);
 			return { ok: false, action: "error", message: activeRes.error };
 		}
 		const active = activeRes.active;
@@ -245,6 +255,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		// 5. Scan GitHub state.
 		const scanRes = await scanGithubState(owner, repo, ghFn);
 		if (!scanRes.ok) {
+			await logCycleError(workspace, { error: `State scan failed: ${scanRes.error}`, action: "error" }, config);
 			return { ok: false, action: "error", message: `State scan failed: ${scanRes.error}` };
 		}
 		const state = scanRes.state;
@@ -264,10 +275,22 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		log(`dispatch: ${decision.decision} (${decision.reason})`);
 
 		if (decision.decision === "stop") {
+			await logCycleResult(workspace, config, {
+				action: "stopped",
+				status: "stopped",
+				reason: decision.reason,
+				persona: decision.persona,
+			}, state);
 			await releaseLock(workspace);
 			return { ok: true, action: "stopped", decision: decision.decision, reason: decision.reason, message: `Loop stopped: ${decision.reason}` };
 		}
 		if (decision.decision === "wait") {
+			await logCycleResult(workspace, config, {
+				action: "waiting",
+				status: "waiting",
+				reason: decision.reason,
+				persona: decision.persona,
+			}, state);
 			await releaseLock(workspace);
 			return { ok: true, action: "waiting", decision: decision.decision, persona: decision.persona, reason: decision.reason, message: `Waiting: ${decision.reason}` };
 		}
@@ -356,6 +379,9 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		// 9. Log result (runPersona already appended the ledger line; surface here).
 		log(`persona "${decision.persona}" finished (exit ${result.exitCode}, ok=${result.ok}).`);
 
+		// M10: write the execution summary after each persona run.
+		await refreshSummary(workspace, config, state).catch(() => {});
+
 		await releaseLock(workspace);
 		return {
 			ok: result.ok,
@@ -365,11 +391,14 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			reason: decision.reason,
 			runId,
 			runDir: result.runDir,
+			tokens: result.tokens,
 			message: `Ran persona "${decision.persona}" (${result.ok ? "ok" : "exit " + result.exitCode}).`,
 		};
 	} catch (err) {
 		await releaseLock(workspace).catch(() => {});
-		return { ok: false, action: "error", message: `Loop cycle error: ${err?.message || err}` };
+		const msg = `Loop cycle error: ${err?.message || err}`;
+		await logCycleError(workspace, { error: msg, action: "error" }, config);
+		return { ok: false, action: "error", message: msg };
 	}
 }
 
@@ -416,4 +445,67 @@ export async function runLoop(workspace, io = {}, opts = {}) {
 /** Promise-based sleep. */
 export function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Log a non-persona cycle result (stopped / waiting) as a run record and
+ * refresh the execution summary.
+ */
+async function logCycleResult(workspace, config, { action, status, reason, persona }, state) {
+	try {
+		const record = buildRunRecord({
+			persona: persona || "",
+			trigger: "loop",
+			projectName: config?.project?.name || "",
+			repo: [config?.project?.owner, config?.project?.repo].filter(Boolean).join("/"),
+			status,
+			action,
+			reason: reason || "",
+			startedAt: new Date().toISOString(),
+			finishedAt: new Date().toISOString(),
+		});
+		await appendRunRecord(workspace, record, config);
+		await refreshSummary(workspace, config, state);
+	} catch {
+		// logging is best-effort and must never break the loop
+	}
+}
+
+/**
+ * Log a cycle error to errors.jsonl (and runs.jsonl) and refresh the summary.
+ */
+async function logCycleError(workspace, { error, action = "error" }, config) {
+	try {
+		await appendErrorRecord(workspace, { error, action }, config);
+		const record = buildRunRecord({
+			trigger: "loop",
+			projectName: config?.project?.name || "",
+			repo: [config?.project?.owner, config?.project?.repo].filter(Boolean).join("/"),
+			status: "error",
+			action,
+			reason: "loop error",
+			error: String(error || "").slice(0, 2000),
+			startedAt: new Date().toISOString(),
+			finishedAt: new Date().toISOString(),
+		});
+		await appendRunRecord(workspace, record, config);
+		await refreshSummary(workspace, config, {});
+	} catch {
+		// best-effort
+	}
+}
+
+/**
+ * Refresh `.pi/logs/summary.md` / `summary.jsonl` from the latest run records,
+ * error records, and the scanned GitHub state.
+ */
+async function refreshSummary(workspace, config, state) {
+	const [errors, last] = await Promise.all([readErrors(workspace), lastRun(workspace)]);
+	await writeSummary({
+		workspace,
+		config,
+		state: state || {},
+		lastRun: last,
+		errors: errors.slice(-10),
+	});
 }

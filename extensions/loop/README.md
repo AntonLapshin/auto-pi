@@ -13,7 +13,7 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 | `pm-context.js`    | PM context packer (M7, plan.md §21.1): reads manifest/project-state/changelog, open issue + PR summaries, recent merged PRs, and policy excerpts for the PM persona. |
 | `engineer-context.js` | Engineer context packer (M8, plan.md §21.1): resolves the target work item (implement a `pi:ready` issue / address review comments / merge an approved PR), includes the issue body + comments, PR review comments, project structure, test commands, recent merged PRs, and policy excerpts for the Engineer persona. |
 | `review-context.js` | Review Engineer context packer (M9, plan.md §21.1): resolves the target PR (a `pi:review-needed` / review-requested PR), includes the PR body + diff summary, linked issue + acceptance criteria, review settings (`reviewerCanPushTestCommits`), verification commands, review rules, and policy excerpts for the Review Engineer persona. |
-| `persona-runner.js`| Launches a fresh Pi persona session: unique run ID, no session persistence, context passed as a file, output captured in the run dir (plan.md §14 / §29.3). |
+| `persona-runner.js`| Launches a fresh Pi persona session: unique run ID, no session persistence, context passed as a file, output captured in the run dir (plan.md §14 / §29.3). M10 adds full run-log records (plan.md §20.1) and token/cost accounting via `skills/logging/core.js`. |
 | `constants.js`     | Shared paths (`.pi/state/loop.lock`, `.pi/state/stop`, `.pi/logs/runs.jsonl`, `.pi/runs/`) and decision/label constants. |
 | `index.ts`         | Registers the `/loop` and `/stop` slash commands. |
 
@@ -23,6 +23,10 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 - `.pi/state/stop` — stop file checked every cycle (§13.3).
 - `.pi/logs/loop.out` — nohup stdout/stderr capture.
 - `.pi/logs/runs.jsonl` — one JSON line per persona invocation (M10 fills in token/cost).
+- `.pi/logs/errors.jsonl` — one JSON line per logged error / failed run (M10).
+- `.pi/logs/summary.md` + `summary.jsonl` — execution summary (M10).
+- `.pi/logs/latest.log` — latest activity line (M10).
+- `.pi/logs/usage.jsonl` — per-day/per-cycle token accumulation (M10).
 - `.pi/runs/{runId}/` — per-run context, stdout, stderr.
 
 ## CLI / commands
