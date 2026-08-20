@@ -40,6 +40,7 @@ import {
 } from "./repo-name.js";
 import { scaffoldProject, buildContext } from "./scaffold.js";
 import { writeProjectConfig } from "./config.js";
+import { validateConfig } from "../../skills/config/core.js";
 
 /** Unique marker used to detect an empty (no user input) clarification pass. */
 const USE_ASSUMPTIONS = Symbol("use-assumptions");
@@ -392,6 +393,17 @@ export async function runSeed(description, io = {}, opts = {}) {
 		};
 	}
 	notify(`Wrote project config (${configRes.files.length} files) in ${workspace}/.pi.`);
+
+	// M13: validate the generated config against the harness schema. An invalid
+	// generated config fails fast at /seed so the project never starts with a
+	// broken config.
+	const cfgValid = validateConfig(configRes.config || {});
+	if (!cfgValid.ok) {
+		return {
+			ok: false,
+			message: `Generated config failed validation: ${cfgValid.errors.join("; ")}`,
+		};
+	}
 
 	// 8. `.pi/` state directory inside the workspace + initiation.json.
 	const createdAt = new Date().toISOString();

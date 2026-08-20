@@ -15,6 +15,9 @@
     "loop": "node scripts/loop.js",
     "stop": "node scripts/stop.js",
     "status": "node scripts/status.js",
+    "logs": "node scripts/logs.js",
+    "resume": "node scripts/resume.js",
+    "sync-config": "node scripts/sync-config.js",
     "doctor": "node scripts/doctor.js",
     "pages": "node scripts/pages.js",
     "test": "node --test"

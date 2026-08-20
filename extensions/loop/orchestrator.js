@@ -31,6 +31,10 @@ import { homedir } from "node:os";
 import { scanGithubState, readBudgetUsage, budgetExceeded } from "./state-scanner.js";
 import { dispatch } from "./dispatcher.js";
 import { prepareRun, runPersona, newRunId } from "./persona-runner.js";
+import { runReliabilityChecks } from "./reliability.js";
+import { checkConsecutiveFailures, checkCycleBudget, budgetLimits } from "../../skills/budget-guard/core.js";
+import { validateConfig } from "../../skills/config/core.js";
+import { createGhClient } from "../../skills/github/core.js";
 import { buildPmContext } from "./pm-context.js";
 import { buildEngineerContext } from "./engineer-context.js";
 import { buildReviewContext } from "./review-context.js";
@@ -255,15 +259,27 @@ async function notify(workspace, config, event, reason, io, completed) {
  */
 export async function runLoopCycle(workspace, io = {}, opts = {}) {
 	const log = io.log || ((line) => process.stdout.write(`[loop] ${line}\n`));
-	const ghFn = opts.gh;
+	// M13: use the resilient gh client (retry/backoff + rate-limit handling) by
+	// default so the loop survives transient GitHub/network failures. Tests may
+	// inject a fake via opts.gh.
+	const ghFn = opts.gh || createGhClient({ onRetry: (info) => log(`gh retry ${info.attempt}: ${info.reason} (backoff ${info.delayMs}ms)`)});
 
 	// 1. Read config.
 	const cfgRes = await readConfig(workspace);
 	if (!cfgRes.ok) {
-		await logCycleError(workspace, { error: cfgRes.error, action: "error" }, config);
+		await logCycleError(workspace, { error: cfgRes.error, action: "error" }, {});
 		return { ok: false, action: "error", message: cfgRes.error };
 	}
 	const config = cfgRes.config;
+
+	// M13: validate config against the harness schema at loop start. An invalid
+	// config fails fast with a clear message instead of silently misbehaving.
+	const valid = validateConfig(config);
+	if (!valid.ok) {
+		const msg = `Invalid .pi/config.json: ${valid.errors.join("; ")}`;
+		await logCycleError(workspace, { error: msg, action: "error" }, config);
+		return { ok: false, action: "error", message: msg };
+	}
 
 	// 2. Acquire local lock (refuse a second loop for the same project).
 	const lockRes = await acquireLock(workspace);
@@ -293,14 +309,40 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		}
 		const state = scanRes.state;
 
+		// M13: run reliability checks (stale branch cleanup + conflict labelling
+		// + issue-attempt-limit enforcement) best-effort each cycle. Never throws;
+		// failures are logged and ignored.
+		await runReliabilityChecks(owner, repo, ghFn, { log }, {
+			workspace,
+			config,
+			state,
+		}).catch(() => {});
+
 		// Budget usage for the dispatch decision.
 		const usage = await readBudgetUsage(workspace);
 		const budget = budgetExceeded(config, usage);
 
+		// M13: honour `loop.stopOnBudgetExceeded` (default true). When set to
+		// false, a budget overrun is logged as a warning but does NOT stop the
+		// loop — it keeps running so the project can still make progress (plan.md
+		// §21 / M13 budget guardrails).
+		const stopOnBudget = config?.loop?.stopOnBudgetExceeded !== false;
+		const effectiveBudget = budget?.exceeded && !stopOnBudget
+			? { exceeded: false, reason: `budget exceeded but loop.stopOnBudgetExceeded=false (${budget.reason})` }
+			: budget;
+		if (budget?.exceeded && !stopOnBudget) {
+			log(`warning: ${effectiveBudget.reason} — continuing because loop.stopOnBudgetExceeded=false`);
+		}
+
+		// M13: enforce the consecutive-failure limit (loop.maxConsecutiveFailures).
+		// When the last N cycles all errored, stop with a repeated-failure reason.
+		const recentFailures = await consecutiveFailureCount(workspace);
+		const failureStop = checkConsecutiveFailures(config, recentFailures);
+
 		// 6. Decide next persona.
 		const decision = dispatch({
 			stopped,
-			budget,
+			budget: failureStop.exceeded ? failureStop : effectiveBudget,
 			needsHuman: await needsHuman(workspace, state),
 			state,
 			config,
@@ -452,6 +494,36 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		const msg = `Loop cycle error: ${err?.message || err}`;
 		await logCycleError(workspace, { error: msg, action: "error" }, config);
 		return { ok: false, action: "error", message: msg };
+	}
+}
+
+/**
+ * Count the number of consecutive failed cycles from the run ledger
+ * (runs.jsonl). A "failure" is a cycle whose run record has status/action
+ * "error" (a persona session that failed or a cycle that errored). Used to
+ * enforce `loop.maxConsecutiveFailures` (M13).
+ *
+ * @param {string} workspace
+ * @returns {Promise<number>} consecutive failure count (0 when none / no ledger)
+ */
+async function consecutiveFailureCount(workspace) {
+	try {
+		const { readRuns } = await import("../../skills/logging/core.js");
+		const runs = await readRuns(workspace);
+		let count = 0;
+		// Walk backwards from the most recent run; stop at the first non-failure.
+		for (let i = runs.length - 1; i >= 0; i--) {
+			const r = runs[i];
+			const failed = r?.status === "error" || r?.action === "error";
+			if (failed) {
+				count += 1;
+			} else {
+				break;
+			}
+		}
+		return count;
+	} catch {
+		return 0;
 	}
 }
 

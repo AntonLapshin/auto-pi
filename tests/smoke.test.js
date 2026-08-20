@@ -43,16 +43,21 @@ test("package.json manifest is well-formed", () => {
 	}
 });
 
-test("status remains a stub; loop/stop are implemented (M6)", () => {
-	// /seed, /doctor, /loop, /stop are implemented (M2, M1, M6); only /status
-	// still reports not-implemented (M13).
-	const statusOut = execFileSync(process.execPath, [join(ROOT, "scripts", "status.js")], {
-		encoding: "utf8",
-	});
-	assert.match(statusOut, /not implemented yet/, "status stub reports not-implemented");
+test("status is implemented; loop/stop are implemented (M13)", () => {
+	// /seed, /doctor, /loop, /stop, /status are all implemented. status must
+	// no longer report "not implemented" — it reports either the active project
+	// report or the missing-active-project error.
+	let statusOut = "";
+	try {
+		statusOut = execFileSync(process.execPath, [join(ROOT, "scripts", "status.js")], {
+			encoding: "utf8",
+		});
+	} catch (e) {
+		statusOut = (e.stdout?.toString?.() || e.message || "");
+	}
+	assert.ok(!/not implemented yet/.test(statusOut), "status no longer reports not-implemented");
 
-	// loop/stop must no longer be stubs. Without an active project they should
-	// report the missing-active-project error (not the not-implemented stub).
+	// loop/stop must no longer be stubs.
 	for (const cmd of ["loop", "stop"]) {
 		const src = readFileSync(join(ROOT, "scripts", `${cmd}.js`), "utf8");
 		assert.ok(!/runStub/.test(src), `scripts/${cmd}.js no longer shells out to the stub`);

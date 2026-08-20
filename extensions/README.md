@@ -6,12 +6,12 @@ subdirectory here.
 
 | File / dir      | Purpose                                             | Milestone |
 |-----------------|-----------------------------------------------------|-----------|
-| `harness.ts`    | Registers `/stop`, `/status`                     | M0 (stubs)|
+| `harness.ts`    | Registers `/status`, `/logs`, `/resume`, `/sync-config` | M13 |
 | `joingonka.ts`  | JoinGonka provider (DeepSeek V4 Flash / Kimi)       | existing  |
 | `gonkaapi.ts`   | GonkaAPI provider (DeepSeek V4 Flash)               | existing  |
 | `seed/`         | Initiation + repo creation + project scaffold + CI/Pages + deploy health | M2, M3, M4 |
 | `doctor/`       | Environment prerequisite checks                      | M1 (done) |
-| `loop/`         | Loop orchestrator, state scanner, dispatcher, PM/Engineer/Review Engineer context packers | M6, M7, M8, M9 |
+| `loop/`         | Loop orchestrator, state scanner, dispatcher, PM/Engineer/Review Engineer context packers, reliability helpers | M6, M7, M8, M9, M13 |
 
 **About commands in `package.json`:** Pi's extension schema registers slash commands
 programmatically via `pi.registerCommand()` (see `harness.ts`) — there is no

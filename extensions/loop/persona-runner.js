@@ -30,6 +30,7 @@ import {
 	accumulateTokens,
 	buildRunRecord,
 } from "../../skills/logging/core.js";
+import { personaTokenFlags } from "../../skills/budget-guard/core.js";
 
 /**
  * Generate a unique run ID: `{persona}-{yyyymmdd-hhmmss}-{shortId}`.
@@ -199,6 +200,11 @@ export async function runPersona({
 	// Optional model/provider selection from the project config.
 	if (config?.pi?.provider) args.push("--provider", config.pi.provider);
 	if (config?.pi?.model) args.push("--model", config.pi.model);
+
+	// M13: enforce per-persona token caps (budget guard, plan.md §21). Pass the
+	// context/prompt/output caps to pi so the model is bounded at the persona
+	// level as well as the loop level. Unknown flags are ignored by pi.
+	for (const flag of personaTokenFlags(config)) args.push(flag);
 
 	const childEnv = { ...process.env, ...(env || {}) };
 

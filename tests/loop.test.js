@@ -327,3 +327,52 @@ test("runLoopCycle stops when the stop file exists (no persona launched)", async
 	assert.equal(result.action, "stopped");
 	assert.equal(result.decision, DECISION.STOP);
 });
+
+test("runLoopCycle does not stop on budget when stopOnBudgetExceeded=false (M13)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-budget-off-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	// Budget is exceeded (tokens used >= maxTokensPerDay=1) but the loop must
+	// NOT stop because stopOnBudgetExceeded=false.
+	await writeFile(join(dir, ".pi", "config.json"), JSON.stringify({
+		project: { owner: "o", repo: "r", name: "R" },
+		loop: { stopOnBudgetExceeded: false, intervalSeconds: 30 },
+		limits: { maxTokensPerDay: 1 },
+	}), "utf8");
+	await writeFile(join(dir, ".pi", "logs", "runs.jsonl"),
+		JSON.stringify({ tokensUsed: 999, costUsd: 0, status: "ok" }) + "\n", "utf8");
+
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(cpFile, JSON.stringify({ workspace: dir, repo: "o/r" }), "utf8");
+
+	const result = await runLoopCycle(dir, { log: () => {} }, {
+		gh: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+		currentProjectFile: cpFile,
+		dryRun: true,
+	});
+	// Not stopped — the loop continues (dry-run would run a persona).
+	assert.notEqual(result.action, "stopped");
+	assert.equal(result.action, "ran");
+});
+
+test("runLoopCycle stops on budget when stopOnBudgetExceeded=true (default, M13)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-budget-on-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await writeFile(join(dir, ".pi", "config.json"), JSON.stringify({
+		project: { owner: "o", repo: "r", name: "R" },
+		limits: { maxTokensPerDay: 1 },
+	}), "utf8");
+	await writeFile(join(dir, ".pi", "logs", "runs.jsonl"),
+		JSON.stringify({ tokensUsed: 999, costUsd: 0, status: "ok" }) + "\n", "utf8");
+
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(cpFile, JSON.stringify({ workspace: dir, repo: "o/r" }), "utf8");
+
+	const result = await runLoopCycle(dir, { log: () => {} }, {
+		gh: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+		currentProjectFile: cpFile,
+	});
+	assert.equal(result.action, "stopped");
+	assert.match(result.reason, /budget/);
+});

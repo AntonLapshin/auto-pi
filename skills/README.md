@@ -11,9 +11,12 @@ Implemented skills:
   lifecycle events (project done, needs-human, loop stopped). Core logic in
   `skills/telegram-notify/core.js` (plain JS, shared with the loop and the
   `scripts/notify.js` fallback CLI).
-
-Planned skills (implemented in later milestones):
-- `budget-guard` (M13) — token/cost budget enforcement per plan §21.
-
-This directory ships empty in the skeleton; it is registered in `package.json`
-so it is ready to receive skills.
+- `budget-guard` (M13) — token/cost budget enforcement per plan §21: per-cycle,
+  per-day, and per-cost limits plus the consecutive-failure limit and the
+  per-persona token caps. Core logic in `skills/budget-guard/core.js`.
+- `config` (M13) — config validation against `config.schema.json` and `/sync-config`
+  (recopy defaults preserving project values). Core logic in `skills/config/core.js`.
+- `github` (M13) — resilient `gh` client with retry/backoff and rate-limit
+  handling. Core logic in `skills/github/core.js`.
+- `status` (M13) — the `/status` report (active project, loop, last run,
+  issues/PRs, budget). Core logic in `skills/status/core.js`.
