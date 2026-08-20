@@ -3,19 +3,37 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Customization package for pi: adds the joingonka provider and DeepSeek V4 Flash model.",
+  "description": "Autonomous engineering team harness for Pi",
   "keywords": [
     "pi-package"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "clean": "echo 'nothing to clean'",
-    "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "seed": "node scripts/seed.js",
+    "loop": "node scripts/loop.js",
+    "stop": "node scripts/stop.js",
+    "status": "node scripts/status.js",
+    "doctor": "node scripts/doctor.js",
+    "pages": "node scripts/pages.js",
+    "test": "node --test"
   },
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions",
+      "./extensions/doctor",
+      "./extensions/seed",
+      "./extensions/loop"
     ]
+  },
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "execa": "^10.0.1",
+    "fs-extra": "^11.4.0",
+    "gray-matter": "^4.0.3",
+    "nanoid": "^6.0.1",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

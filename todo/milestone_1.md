@@ -9,22 +9,22 @@ Build the `/doctor` command (and `npm run doctor` fallback) that validates all e
 
 ## Tasks
 
-- [ ] Implement `extensions/doctor/command.js` and `scripts/doctor.js` with shared core logic.
-- [ ] Checks to perform, each producing a clear pass/fail result:
-  - Node.js installed and version meets requirement
-  - npm installed
-  - git installed
-  - GitHub CLI `gh` installed
-  - `gh auth status` — authenticated to GitHub
-  - GitHub token scopes — has `repo` and `workflow` (read-only check via `gh auth status` or `gh api`)
-  - Pi CLI present and runnable
-  - Pi model/provider configured (detect active provider/model)
-  - Workspace directory `~/.auto-pi` exists and is writable
-  - GitHub Pages config readiness (best-effort)
-- [ ] Output a formatted report: each check with ✅/❌, and an overall summary line.
-- [ ] On failure, print actionable remediation hints (which tool to install, how to run `gh auth login`, which scopes to enable).
-- [ ] Implement `scripts/doctor.js` as the CLI entry (exit code non-zero if any required check fails).
-- [ ] Register `/doctor` in `package.json` `pi` block and in the extension `index.js`.
+- [x] Implement `extensions/doctor/command.js` and `scripts/doctor.js` with shared core logic.
+- [x] Checks to perform, each producing a clear pass/fail result:
+  - [x] Node.js installed and version meets requirement
+  - [x] npm installed
+  - [x] git installed
+  - [x] GitHub CLI `gh` installed
+  - [x] `gh auth status` — authenticated to GitHub
+  - [x] GitHub token scopes — has `repo` and `workflow` (read-only check via `gh auth status` or `gh api`)
+  - [x] Pi CLI present and runnable
+  - [x] Pi model/provider configured (detect active provider/model)
+  - [x] Workspace directory `~/.auto-pi` exists and is writable
+  - [x] GitHub Pages config readiness (best-effort)
+- [x] Output a formatted report: each check with ✅/❌, and an overall summary line.
+- [x] On failure, print actionable remediation hints (which tool to install, how to run `gh auth login`, which scopes to enable).
+- [x] Implement `scripts/doctor.js` as the CLI entry (exit code non-zero if any required check fails).
+- [x] Register `/doctor` in `package.json` `pi` block and in the extension `index.js`.
 
 ## Acceptance Criteria
 

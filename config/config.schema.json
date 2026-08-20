@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://auto-pi.dev/schemas/config.schema.json",
+  "title": "auto-pi project configuration",
+  "description": "Schema for the auto-pi project config (config.default.json and generated {project}/.pi/config.json). Validation used by the harness (M13) and by generated projects.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "project": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "name": { "type": "string", "default": "" },
+        "repo": { "type": "string", "default": "" },
+        "owner": { "type": "string", "default": "" },
+        "ownerEmail": { "type": "string", "format": "email", "default": "" },
+        "defaultBranch": { "type": "string", "default": "main" },
+        "demoUrl": { "type": "string", "format": "uri", "default": "" }
+      }
+    },
+    "pi": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "model": { "type": "string" },
+        "provider": { "type": "string" },
+        "contextMaxTokens": { "type": "integer", "minimum": 1000, "default": 150000 }
+      }
+    },
+    "loop": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "intervalSeconds": { "type": "integer", "minimum": 5, "default": 60 },
+        "stopOnBudgetExceeded": { "type": "boolean", "default": true },
+        "maxConsecutiveFailures": { "type": "integer", "minimum": 1, "default": 3 }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "maxBatchIssues": { "type": "integer", "minimum": 1, "default": 3 },
+        "maxIssueAttempts": { "type": "integer", "minimum": 1, "default": 3 },
+        "maxTokensPerCycle": { "type": "integer", "minimum": 1, "default": 250000 },
+        "maxTokensPerDay": { "type": "integer", "minimum": 1, "default": 750000 },
+        "maxCostPerDayUsd": { "type": "number", "minimum": 0, "default": 20 },
+        "maxPromptTokensPerPersona": { "type": "integer", "minimum": 1, "default": 135000 },
+        "maxOutputTokensPerPersona": { "type": "integer", "minimum": 1, "default": 8000 }
+      }
+    },
+    "github": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "autoCreateRepo": { "type": "boolean", "default": true },
+        "repoVisibility": { "type": "string", "enum": ["public", "private"], "default": "private" }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "framework": { "type": "string", "enum": ["react"], "default": "react" },
+        "typescript": { "type": "boolean", "default": true },
+        "tailwind": { "type": "boolean", "default": true },
+        "testRunner": { "type": "string", "enum": ["vitest"], "default": "vitest" }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "coreCoveragePercent": { "type": "integer", "minimum": 0, "maximum": 100, "default": 100 },
+        "featureBranches": { "type": "boolean", "default": true }
+      }
+    },
+    "pages": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "deployBranch": { "type": "string", "default": "gh-pages" }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "default": {},
+          "properties": {
+            "enabled": { "type": "boolean", "default": false }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "default": {},
+      "properties": {
+        "maxFileSizeMb": { "type": "integer", "minimum": 1, "default": 10 },
+        "rotate": { "type": "boolean", "default": true }
+      }
+    }
+  }
+}

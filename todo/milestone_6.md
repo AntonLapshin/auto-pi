@@ -10,7 +10,7 @@ Build the infinite autonomous loop: process lifecycle, lock/stop files, state sc
 ## Tasks
 
 ### Loop process
-- [ ] Implement `scripts/loop.js` and `extensions/loop/orchestrator.js` following plan.md §13.1 responsibilities:
+- [x] Implement `scripts/loop.js` and `extensions/loop/orchestrator.js` following plan.md §13.1 responsibilities:
   1. read `.pi/config.json`
   2. acquire local lock
   3. check active project
@@ -22,13 +22,13 @@ Build the infinite autonomous loop: process lifecycle, lock/stop files, state sc
   9. log result
   10. sleep (`loop.intervalSeconds`)
   11. repeat
-- [ ] Use PID + lock file under `.pi/state/loop.lock` (plan.md §13.2) — refuse to start a second loop for the same project.
-- [ ] Implement stop file `.pi/state/stop` (plan.md §13.3) checked every cycle.
-- [ ] Start via `nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &` during `/seed`.
+- [x] Use PID + lock file under `.pi/state/loop.lock` (plan.md §13.2) — refuse to start a second loop for the same project.
+- [x] Implement stop file `.pi/state/stop` (plan.md §13.3) checked every cycle.
+- [x] Start via `nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &` during `/seed`.
 
 ### State scanner + dispatcher
-- [ ] Implement `extensions/loop/state-scanner.js`: read open issues, open PRs, CI status, labels, budget usage from GitHub.
-- [ ] Implement `extensions/loop/dispatcher.js` with the dispatch order from plan.md §15:
+- [x] Implement `extensions/loop/state-scanner.js`: read open issues, open PRs, CI status, labels, budget usage from GitHub.
+- [x] Implement `extensions/loop/dispatcher.js` with the dispatch order from plan.md §15:
   1. stop file exists → stop
   2. budget exceeded → stop
   3. initiation needs human → wait
@@ -40,7 +40,7 @@ Build the infinite autonomous loop: process lifecycle, lock/stop files, state sc
   9. otherwise → PM
 
 ### Fresh persona runner
-- [ ] Implement `extensions/loop/persona-runner.js` that launches a fresh Pi persona session:
+- [x] Implement `extensions/loop/persona-runner.js` that launches a fresh Pi persona session:
   - use `pi run --fresh --persona ... --context <file> --run-id ...` if supported
   - otherwise emulate: new child process, unique run ID, no session persistence, context passed as file, output captured in run dir (plan.md §14, §29.3)
 

@@ -1,2 +1,18 @@
+# Dependencies
 node_modules/
+
+# Logs
 *.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Generated local harness state (never commit)
+.persist/
+.prompt-gen/
+
+# Local configuration & state that may contain secrets
+# (the generated project's .pi/local.json, logs, and state are ignored by the
+#  project's own .gitignore — see M5; this repo-level section covers the harness repo)

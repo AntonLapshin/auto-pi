@@ -1,0 +1,57 @@
+{
+  "$comment": "auto-pi default project configuration. Copied to {project}/.pi/config.json at seed time (M5), with the project section filled in. No secrets live here.",
+  "project": {
+    "name": "",
+    "repo": "",
+    "owner": "",
+    "ownerEmail": "",
+    "defaultBranch": "main",
+    "demoUrl": ""
+  },
+  "pi": {
+    "model": "",
+    "provider": "",
+    "contextMaxTokens": 150000
+  },
+  "loop": {
+    "intervalSeconds": 60,
+    "stopOnBudgetExceeded": true,
+    "maxConsecutiveFailures": 3
+  },
+  "limits": {
+    "maxBatchIssues": 3,
+    "maxIssueAttempts": 3,
+    "maxTokensPerCycle": 250000,
+    "maxTokensPerDay": 750000,
+    "maxCostPerDayUsd": 20,
+    "maxPromptTokensPerPersona": 135000,
+    "maxOutputTokensPerPersona": 8000
+  },
+  "github": {
+    "autoCreateRepo": true,
+    "repoVisibility": "private"
+  },
+  "stack": {
+    "framework": "react",
+    "typescript": true,
+    "tailwind": true,
+    "testRunner": "vitest"
+  },
+  "quality": {
+    "coreCoveragePercent": 100,
+    "featureBranches": true
+  },
+  "pages": {
+    "enabled": true,
+    "deployBranch": "gh-pages"
+  },
+  "notifications": {
+    "telegram": {
+      "enabled": false
+    }
+  },
+  "logging": {
+    "maxFileSizeMb": 10,
+    "rotate": true
+  }
+}

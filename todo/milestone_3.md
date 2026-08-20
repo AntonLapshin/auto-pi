@@ -9,8 +9,8 @@ Build the scraffolding that generates a demoable, testable React + Tailwind + Ty
 
 ## Tasks
 
-- [ ] Implement `extensions/seed/scaffold.js` using the Jinja/`*.j2` templates in `templates/project/`.
-- [ ] Generate the base project files listed in plan.md §8.6:
+- [x] Implement `extensions/seed/scaffold.js` using the Jinja/`*.j2` templates in `templates/project/`.
+- [x] Generate the base project files listed in plan.md §8.6:
   - `package.json` (scripts: dev, build `tsc && vite build`, preview, lint, test, test:coverage)
   - `tsconfig.json`
   - `vite.config.ts` (with base path placeholder)
@@ -20,17 +20,17 @@ Build the scraffolding that generates a demoable, testable React + Tailwind + Ty
   - `.gitignore`
   - `README.md` (see §9)
   - `manifest.md`, `project-state.md`, `CHANGELOG.md` (templates)
-- [ ] Generate `src/` layout enforcing the core/UI split:
+- [x] Generate `src/` layout enforcing the core/UI split:
   - `src/main.tsx`, `src/App.tsx`
   - `src/core/projectInfo.ts`
   - `src/ui/components/DemoPanel.tsx`
   - `src/ui/viewModels/useProjectInfo.ts`
   - `src/styles/index.css` with `@tailwind` directives
-- [ ] Generate `tests/core/projectInfo.test.ts` covering the core module.
-- [ ] Configure Vitest coverage enforcing 100% on `src/core/**/*.ts` only (plan.md §19.1).
-- [ ] Generate an initial demo panel that renders project name / status / demo info (plan.md §26.3).
-- [ ] Inject the project name into templates during scaffolding.
-- [ ] Verify scaffold succeeds locally:
+- [x] Generate `tests/core/projectInfo.test.ts` covering the core module.
+- [x] Configure Vitest coverage enforcing 100% on `src/core/**/*.ts` only (plan.md §19.1).
+- [x] Generate an initial demo panel that renders project name / status / demo info (plan.md §26.3).
+- [x] Inject the project name into templates during scaffolding.
+- [x] Verify scaffold succeeds locally:
   ```bash
   npm install
   npm test

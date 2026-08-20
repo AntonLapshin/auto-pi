@@ -25,6 +25,7 @@ export default function (pi: ExtensionAPI) {
 				id: "deepseek-ai/DeepSeek-V4-Flash-0731",
 				name: "DeepSeek V4 Flash 0731",
 				reasoning: true,
+                                reasoning_effort: "max",
 				input: ["text"],
 				cost: { input: 0.07, output: 0.1, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 200000,
