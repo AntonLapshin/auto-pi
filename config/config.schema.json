@@ -102,8 +102,14 @@
         "telegram": {
           "type": "object",
           "default": {},
+          "description": "M11 / plan.md §24 — optional env-driven Telegram lifecycle notifications. No-op when disabled or when the env vars are absent.",
           "properties": {
-            "enabled": { "type": "boolean", "default": false }
+            "enabled": { "type": "boolean", "default": false },
+            "botTokenEnv": { "type": "string", "default": "TELEGRAM_BOT_TOKEN" },
+            "chatIdEnv": { "type": "string", "default": "TELEGRAM_CHAT_ID" },
+            "notifyOnDone": { "type": "boolean", "default": true },
+            "notifyOnStopped": { "type": "boolean", "default": true },
+            "notifyOnNeedsHuman": { "type": "boolean", "default": true }
           }
         }
       }

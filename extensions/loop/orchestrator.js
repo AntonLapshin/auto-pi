@@ -49,6 +49,7 @@ import {
 	readErrors,
 	lastRun,
 } from "../../skills/logging/core.js";
+import { notifyEvent, setLogger } from "../../skills/telegram-notify/core.js";
 /** Default per-machine active-project record (matches seed constants). */
 export const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
 
@@ -206,6 +207,38 @@ export async function needsHuman(workspace, state) {
 }
 
 /**
+ * Best-effort read of the local completion marker the PM writes when the
+ * project is done (plan.md §24, personas/pm.md Step 4). Absent → not done.
+ * @param {string} workspace
+ * @returns {Promise<{ status: string, completedAt?: string, repo?: string, demoUrl?: string }>}
+ */
+async function readCompletedState(workspace) {
+	try {
+		const raw = await readFile(join(workspace, ".pi", "state", "completed.json"), "utf8");
+		const data = JSON.parse(raw);
+		if (data && data.status === "done") return data;
+	} catch {
+		// no completion marker yet
+	}
+	return null;
+}
+
+/**
+ * Send a Telegram lifecycle notification, best-effort (M11). Never throws and
+ * never breaks the loop — it is a silent no-op when disabled or env vars are
+ * absent. Logs only a redacted (secret-free) activity line via the injected io.
+ */
+async function notify(workspace, config, event, reason, io, completed) {
+	try {
+		const log = io?.log || ((line) => process.stdout.write(`[loop] ${line}\n`));
+		setLogger((line) => log(line));
+		await notifyEvent({ workspace, config, event: event, reason: reason || "", completed });
+	} catch {
+		// notifications are best-effort and must never break the loop
+	}
+}
+
+/**
  * Run a single loop cycle for the active project.
  *
  * @param {string} workspace absolute project root
@@ -281,6 +314,14 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 				reason: decision.reason,
 				persona: decision.persona,
 			}, state);
+			// M11: notify on loop stop — budget stop always; manual stop only if
+			// `notifyOnStopped` is set (the stop-file case).
+			const stoppedManual = Boolean(stopped);
+			if (budget && budget.exceeded) {
+				await notify(workspace, config, "stopped-budget", decision.reason, io);
+			} else if (stoppedManual) {
+				await notify(workspace, config, "stopped-manual", decision.reason, io);
+			}
 			await releaseLock(workspace);
 			return { ok: true, action: "stopped", decision: decision.decision, reason: decision.reason, message: `Loop stopped: ${decision.reason}` };
 		}
@@ -291,6 +332,11 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 				reason: decision.reason,
 				persona: decision.persona,
 			}, state);
+			// M11: notify when the project needs human attention.
+			const needsHumanNow = await needsHuman(workspace, state);
+			if (needsHumanNow) {
+				await notify(workspace, config, "needs-human", decision.reason, io);
+			}
 			await releaseLock(workspace);
 			return { ok: true, action: "waiting", decision: decision.decision, persona: decision.persona, reason: decision.reason, message: `Waiting: ${decision.reason}` };
 		}
@@ -381,6 +427,13 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 
 		// M10: write the execution summary after each persona run.
 		await refreshSummary(workspace, config, state).catch(() => {});
+
+		// M11: if the PM just wrote the completion marker, send the "done"
+		// notification (project, repo, demo URLs) and stop the loop.
+		const completed = await readCompletedState(workspace);
+		if (completed) {
+			await notify(workspace, config, "done", "project completed", io, completed);
+		}
 
 		await releaseLock(workspace);
 		return {

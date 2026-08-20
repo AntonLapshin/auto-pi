@@ -9,19 +9,19 @@ Add an optional Telegram notification skill for key lifecycle events.
 
 ## Tasks
 
-- [ ] Implement `skills/telegram-notify/` skill and `scripts/notify.js` fallback.
-- [ ] Config-driven and env-driven (plan.md §24):
+- [x] Implement `skills/telegram-notify/` skill and `scripts/notify.js` fallback.
+- [x] Config-driven and env-driven (plan.md §24):
   - `notifications.telegram.enabled` (default false)
   - `notifications.telegram.botTokenEnv` = `TELEGRAM_BOT_TOKEN`
   - `notifications.telegram.chatIdEnv` = `TELEGRAM_CHAT_ID`
   - flags: `notifyOnDone`, `notifyOnStopped`, `notifyOnNeedsHuman`
-- [ ] Send messages for events:
+- [x] Send messages for events:
   - project completed (plan.md §24 completion message: project, repo, demo URLs)
   - project needs human attention (reason, repo URL)
   - loop stopped due to budget
   - loop stopped manually if configured
-- [ ] If disabled or env vars absent, no-op without failure (no crash in loop).
-- [ ] Never log the token or chat ID in harness logs (redact).
+- [x] If disabled or env vars absent, no-op without failure (no crash in loop).
+- [x] Never log the token or chat ID in harness logs (redact).
 
 ## Acceptance Criteria
 

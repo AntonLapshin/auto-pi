@@ -9,5 +9,7 @@ scanner, dispatcher logic).
 Current suites:
 - `logging.test.js` — M10 logging & execution summary (run/error/summary JSONL,
   token accumulation, summary.md, redaction, rotation).
+- `telegram.test.js` — M11 Telegram notifications (config/env resolution, message
+  building, sendMessage via fake fetch, no-op when disabled/missing env, redaction).
 
 To add a test, create `tests/<name>.test.js` using the Node.js built-in test runner.

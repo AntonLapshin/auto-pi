@@ -12,6 +12,7 @@ driven from `npm run <cmd>` or `node scripts/<cmd>.js` outside an interactive Pi
 | `stop.js`          | implemented | M6        |
 | `status.js`        | stub   | M13       |
 | `doctor.js`       | implemented | M1        |
+| `notify.js`       | implemented | M11       |
 | `stub.js`          | shared stub helper | — |
 
 In the M0 skeleton every script is a `not implemented` stub that exits 0. Milestones

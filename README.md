@@ -25,6 +25,10 @@ verifiable evidence, missing-test detection, and approve/request-changes flow �
 is implemented. Local logging and execution summary (M10) — `runs.jsonl`,
 `errors.jsonl`, `summary.md`/`summary.jsonl`, `latest.log`, per-day/per-cycle
 token accounting, secret redaction, and config-driven rotation — is implemented.
+Optional Telegram lifecycle notifications (M11) — `skills/telegram-notify`
+project-done / needs-human / budget-stop / manual-stop messages, env-driven
+config, non-fatal when disabled or env vars are absent, and secret redaction —
+is implemented.
 The remaining loop commands report "not implemented" until
 later milestones fill them in. See
 [`todo/README.md`](todo/README.md) for the milestone plan.
