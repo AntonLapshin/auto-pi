@@ -2,9 +2,9 @@
 
 Common issues and how to resolve them.
 
-## `/doctor` fails
+## `/loop-doctor` fails
 
-Run `/doctor` (or `npm run doctor`) to see exactly which prerequisite is missing
+Run `/loop-doctor` (or `npm run doctor`) to see exactly which prerequisite is missing
 and how to fix it:
 
 - **Node.js / npm / git / gh missing** — install and ensure they are on PATH.
@@ -32,7 +32,7 @@ fix it, then `/loop-resume` (or `npm run resume`).
 ## The loop stops with a budget reason
 
 The loop stops when `limits.maxTokensPerDay` / `maxCostPerDayUsd` is reached.
-Check `/status` for budget usage. To continue, raise the limit in
+Check `/loop-status` for budget usage. To continue, raise the limit in
 `.pi/config.json` and `/loop-resume`.
 
 ## An issue keeps failing to implement
@@ -68,4 +68,4 @@ use the git-ignored `.pi/local.json` / env vars.
 - `.pi/logs/loop.out` — the loop process output
 - `.pi/runs/{runId}/` — per-run context, stdout, stderr
 
-Use `/logs` (or `npm run logs`) to view them.
+Use `/loop-logs` (or `npm run logs`) to view them.

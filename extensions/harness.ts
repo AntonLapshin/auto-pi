@@ -1,10 +1,10 @@
 /**
  * auto-pi harness commands.
  *
- * Registers the `/status`, `/logs`, `/loop-resume`, and `/sync-config` slash commands
- * (M13). The other commands are implemented by their own extensions: `/doctor`
- * in `extensions/doctor` (M1), `/seed` in `extensions/seed` (M2), and `/loop` +
- * `/stop` in `extensions/loop` (M6).
+ * Registers the `/loop-status`, `/loop-logs`, `/loop-resume`, and `/loop-sync-config` slash commands
+ * (M13). The other commands are implemented by their own extensions: `/loop-doctor`
+ * in `extensions/doctor` (M1), `/loop-seed` in `extensions/seed` (M2), and `/loop` +
+ * `/loop-stop` in `extensions/loop` (M6).
  *
  * Commands are registered programmatically via `pi.registerCommand()`, which is
  * the canonical Pi extension schema for commands (the `pi` block in package.json
@@ -29,8 +29,8 @@ function parseTailArg(args: string): number {
 }
 
 export default function (pi: ExtensionAPI) {
-	// --- /status (M13) ---
-	pi.registerCommand("status", {
+	// --- /loop-status (M13) ---
+	pi.registerCommand("loop-status", {
 		description:
 			"Show active project, loop status, last persona run, open issues/PRs, and budget usage",
 		handler: async (_args, ctx) => {
@@ -45,8 +45,8 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// --- /logs (M13) ---
-	pi.registerCommand("logs", {
+	// --- /loop-logs (M13) ---
+	pi.registerCommand("loop-logs", {
 		description: "Show the latest local loop / run logs for the active project",
 		handler: async (args, ctx) => {
 			const activeRes = await readActiveProject();
@@ -144,8 +144,8 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// --- /sync-config (M13) ---
-	pi.registerCommand("sync-config", {
+	// --- /loop-sync-config (M13) ---
+	pi.registerCommand("loop-sync-config", {
 		description:
 			"Recopy harness config defaults into .pi/config.json while preserving project-specific values",
 		handler: async (_args, ctx) => {

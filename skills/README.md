@@ -14,9 +14,9 @@ Implemented skills:
 - `budget-guard` (M13) — token/cost budget enforcement per plan §21: per-cycle,
   per-day, and per-cost limits plus the consecutive-failure limit and the
   per-persona token caps. Core logic in `skills/budget-guard/core.js`.
-- `config` (M13) — config validation against `config.schema.json` and `/sync-config`
+- `config` (M13) — config validation against `config.schema.json` and `/loop-sync-config`
   (recopy defaults preserving project values). Core logic in `skills/config/core.js`.
 - `github` (M13) — resilient `gh` client with retry/backoff and rate-limit
   handling. Core logic in `skills/github/core.js`.
-- `status` (M13) — the `/status` report (active project, loop, last run,
+- `status` (M13) — the `/loop-status` report (active project, loop, last run,
   issues/PRs, budget). Core logic in `skills/status/core.js`.

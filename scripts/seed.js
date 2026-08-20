@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/seed` command (M2).
+ * Fallback CLI entry for the auto-pi `/loop-seed` command (M2).
  *
- * Runs the same initiation flow as the interactive `/seed` command, reusing the
+ * Runs the same initiation flow as the interactive `/loop-seed` command, reusing the
  * shared core in `extensions/seed/core.js`. Suitable for `npm run seed` outside
  * an interactive Pi session.
  *

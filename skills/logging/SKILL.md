@@ -15,7 +15,7 @@ which is git-ignored in generated projects (see `templates/project/.gitignore.j2
 | `summary.md`    | Human-readable execution summary (plan.md §20.2)                |
 | `summary.jsonl` | Machine-readable summary records (one per summary write)        |
 | `latest.log`    | Latest plain-text activity line (tail-friendly)                 |
-| `usage.jsonl`   | Per-day / per-cycle token accumulation (feeds M13 + `/status`)  |
+| `usage.jsonl`   | Per-day / per-cycle token accumulation (feeds M13 + `/loop-status`)  |
 
 ## Run-log schema (plan.md §20.1)
 

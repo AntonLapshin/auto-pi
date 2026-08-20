@@ -1,8 +1,8 @@
 /**
  * Status core for the auto-pi harness (M13, plan.md §3.3).
  *
- * Builds the `/status` report: active project, loop status, last persona run,
- * open issues/PRs, and budget usage. Shared between the interactive `/status`
+ * Builds the `/loop-status` report: active project, loop status, last persona run,
+ * open issues/PRs, and budget usage. Shared between the interactive `/loop-status`
  * command (`extensions/harness.ts`) and the fallback CLI (`scripts/status.js`).
  *
  * Plain JS on purpose — imported via jiti by the extension and directly by

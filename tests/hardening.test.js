@@ -4,8 +4,8 @@
  * Covers the reliability measures (retry/backoff, rate-limit handling, stale
  * branch cleanup, conflict detection, issue-attempt limits), the budget guard
  * (per-cycle/per-day/cost limits + consecutive-failure limit + per-persona
- * token caps), config validation, and the new commands (`/status`, `/logs`,
- * `/loop-resume`, `/sync-config`).
+ * token caps), config validation, and the new commands (`/loop-status`, `/loop-logs`,
+ * `/loop-resume`, `/loop-sync-config`).
  */
 
 import { test } from "node:test";

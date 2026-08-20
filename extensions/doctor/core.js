@@ -1,9 +1,9 @@
 /**
- * Shared core logic for the auto-pi `/doctor` environment prerequisite checks (M1).
+ * Shared core logic for the auto-pi `/loop-doctor` environment prerequisite checks (M1).
  *
  * This module is plain JavaScript on purpose so it can be imported both by
  * `scripts/doctor.js` (the fallback Node CLI, run under `node scripts/doctor.js`)
- * and by `extensions/doctor/index.ts` (the `/doctor` slash command, loaded by pi
+ * and by `extensions/doctor/index.ts` (the `/loop-doctor` slash command, loaded by pi
  * through jiti). Keeping the checks here means the CLI and the interactive command
  * always report the same results.
  *
@@ -82,7 +82,7 @@ function parseScopes(stdout) {
 
 /**
  * Detect the active Pi provider/model.
- * Priority: explicit overrides (passed by the `/doctor` extension from ctx.model),
+ * Priority: explicit overrides (passed by the `/loop-doctor` extension from ctx.model),
  * then PI_PROVIDER/PI_MODEL env vars (set by pi for every bash command), then pi's
  * settings.json defaults.
  */
@@ -145,7 +145,7 @@ async function checkPages(ghTokenOk) {
  * Run all environment prerequisite checks.
  *
  * @param {object} [opts]
- * @param {object} [opts.overrides]        Explicit pi provider/model from `/doctor`.
+ * @param {object} [opts.overrides]        Explicit pi provider/model from `/loop-doctor`.
  * @param {string} [opts.workspaceDir]     Override the workspace directory (tests).
  * @returns {Promise<Array<object>>}       Array of check result objects.
  */
@@ -210,7 +210,7 @@ export async function runChecks(opts = {}) {
 				? scopeOk
 					? ""
 					: "Your token lacks required scopes. Run `gh auth refresh -s repo -s workflow` (or `gh auth login`) to add the `repo` and `workflow` scopes."
-				: "Authenticate first with `gh auth login`, then re-run /doctor.",
+				: "Authenticate first with `gh auth login`, then re-run /loop-doctor.",
 			required: true,
 			bestEffort: false,
 		});
@@ -309,8 +309,8 @@ export function formatReport(results) {
 
 	const summary =
 		failed === 0
-			? `\nAll ${results.length} checks passed. Ready to /seed.`
-			: `\n${failed} of ${results.length} checks FAILED. Fix the items above, then re-run /doctor.`;
+			? `\nAll ${results.length} checks passed. Ready to /loop-seed.`
+			: `\n${failed} of ${results.length} checks FAILED. Fix the items above, then re-run /loop-doctor.`;
 
 	return lines.join("\n") + "\n" + summary;
 }

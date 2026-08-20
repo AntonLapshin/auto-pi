@@ -1,12 +1,12 @@
 /**
- * The auto-pi `/seed` command (M2).
+ * The auto-pi `/loop-seed` command (M2).
  *
  * Runs the initiation flow: clarification, repo naming & creation, local
  * workspace, and the "one active project per machine" enforcement. Uses the
  * shared core in `extensions/seed/core.js` (also used by the `npm run seed`
  * fallback CLI) with the live Pi UI dialogs injected as the `io` handlers.
  *
- * Usage: `/seed <project description>` — everything after `/seed` becomes the
+ * Usage: `/loop-seed <project description>` — everything after `/loop-seed` becomes the
  * project's one-line description used for clarification and repo naming.
  */
 
@@ -15,15 +15,15 @@ import { runSeed } from "./core.js";
 import { buildQuestions } from "./clarify.js";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerCommand("seed", {
+	pi.registerCommand("loop-seed", {
 		description:
 			"Initiate a new auto-pi project: clarify the idea, create a GitHub repo, clone it locally, and record the active project",
 		handler: async (args, ctx) => {
 			const description = String(args ?? "").trim();
 			if (!description) {
 				ctx.ui.notify(
-					"Usage: /seed <project description>\n" +
-						"e.g. /seed Build a markdown notes app",
+					"Usage: /loop-seed <project description>\n" +
+						"e.g. /loop-seed Build a markdown notes app",
 					"warning",
 				);
 				return;

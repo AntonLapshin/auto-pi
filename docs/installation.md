@@ -17,7 +17,7 @@ How to install and activate the auto-pi harness in your Pi environment.
 - **GitHub account** — with a token that can create repos, issues, PRs, and
   workflow runs. See [GitHub Token setup](github-token.md).
 
-Run `/doctor` (or `npm run doctor`) to validate all prerequisites — it reports
+Run `/loop-doctor` (or `npm run doctor`) to validate all prerequisites — it reports
 exactly what is missing and how to fix it.
 
 ## Install
@@ -35,17 +35,17 @@ which loads the provider extensions and the harness slash commands.
 ## Verify
 
 After installation, the following commands are available (interactively as
-`/seed`, `/stop`, `/status`, `/logs`, `/loop-resume`, `/sync-config`, `/doctor`):
+`/loop-seed`, `/loop-stop`, `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
 
 | Command | Purpose | Milestone |
 |---------|---------|-----------|
-| `/seed` | Initiate a new project (clarify, create repo, scaffold) | M2 |
-| `/stop` | Stop the autonomous loop | M6 |
-| `/status` | Active project, loop, and persona status | M13 |
-| `/logs` | Show the latest local logs | M13 |
+| `/loop-seed` | Initiate a new project (clarify, create repo, scaffold) | M2 |
+| `/loop-stop` | Stop the autonomous loop | M6 |
+| `/loop-status` | Active project, loop, and persona status | M13 |
+| `/loop-logs` | Show the latest local logs | M13 |
 | `/loop-resume` | Resume a stopped/paused project's loop | M13 |
-| `/sync-config` | Recopy config defaults, preserving project values | M13 |
-| `/doctor` | Validate environment prerequisites | M1 |
+| `/loop-sync-config` | Recopy config defaults, preserving project values | M13 |
+| `/loop-doctor` | Validate environment prerequisites | M1 |
 
 Each command also has a fallback `npm run <cmd>` / `node scripts/<cmd>.js`
 entry for non-interactive use (see [`scripts/`](../scripts/README.md)).

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/status` command (M13).
+ * Fallback CLI entry for the auto-pi `/loop-status` command (M13).
  *
  * Reports the active project, loop status, last persona run, open issues/PRs,
  * and budget usage. Reuses the shared `skills/status/core.js` so the CLI and
- * the interactive `/status` command report identical results.
+ * the interactive `/loop-status` command report identical results.
  *
  *   npm run status
  */

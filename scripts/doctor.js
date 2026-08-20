@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/doctor` command (M1).
+ * Fallback CLI entry for the auto-pi `/loop-doctor` command (M1).
  *
  * Shared logic lives in extensions/doctor/core.js so the CLI and the interactive
- * `/doctor` command report identical results. Exits non-zero if any required check
+ * `/loop-doctor` command report identical results. Exits non-zero if any required check
  * fails (useful for CI / shell gates before starting work).
  */
 

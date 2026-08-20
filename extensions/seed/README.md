@@ -1,6 +1,6 @@
 # extensions/seed
 
-Implements the `/seed` initiation flow (M2).
+Implements the `/loop-seed` initiation flow (M2).
 
 - `core.js` — shared orchestration (also imported by `scripts/seed.js`): enforces
   **one active project per machine**, runs clarification, derives & checks repo
@@ -28,10 +28,10 @@ Implements the `/seed` initiation flow (M2).
   of the Pages deploy workflow, detects a failed deployment, and creates/updates a
   `pi:needs-human` + `pi:blocked` + `type:infra` issue (with a `PI-HUMAN` marker)
   instead of retrying forever. Logs `reason=github_pages_deployment_failed`.
-- `index.ts` — registers the `/seed` slash command, injecting live Pi UI dialogs
+- `index.ts` — registers the `/loop-seed` slash command, injecting live Pi UI dialogs
   (`ctx.ui.confirm/select/input`) as the `io` handlers for `core.js`.
 
-Run it interactively as `/seed <description>`, or from a shell as
+Run it interactively as `/loop-seed <description>`, or from a shell as
 `npm run seed -- "<description>"` (the CLI prompts over stdin; add `--yes` to
 proceed non-interactively with assumptions).
 
@@ -43,7 +43,7 @@ upload-pages-artifact / deploy-pages actions with `pages` + `id-token` permissio
 and a concurrency group). The Vite `base` is set to `/{repo}/` and the README demo
 URL to `https://{owner}.github.io/{repo}/`.
 
-During `/seed`, a private repo triggers a warning that Pages is only available for
+During `/loop-seed`, a private repo triggers a warning that Pages is only available for
 public repos on the free plan. Deployment health can be checked from a shell with
 `npm run pages` (see `scripts/pages.js`); it surfaces failures as a
 `pi:needs-human` issue rather than retrying forever.

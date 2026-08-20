@@ -11,7 +11,7 @@
  *   summary.jsonl  machine-readable summary records (one per summary write)
  *   latest.log     latest plain-text activity log (tail-friendly)
  *   usage.jsonl    per-day / per-cycle token accumulation (feeds M13 budget
- *                  guard and `/status`)
+ *                  guard and `/loop-status`)
  *
  * Plain JS on purpose — imported via jiti by the `/loop` extension and directly
  * by tests / node scripts, matching the doctor/seed/loop conventions.
@@ -343,7 +343,7 @@ export async function readErrors(workspace) {
 
 /**
  * Accumulate token usage into `usage.jsonl` — one record per day (and per loop
- * cycle) so the M13 budget guard and `/status` can read per-day/per-cycle totals.
+ * cycle) so the M13 budget guard and `/loop-status` can read per-day/per-cycle totals.
  *
  * Each record: { date, cycle, tokensInput, tokensOutput, tokensTotal, runs }.
  * A new record is appended per call (additive, not overwriting) so downstream

@@ -1,12 +1,12 @@
 /**
- * Shared core for the auto-pi `/seed` initiation flow (M2).
+ * Shared core for the auto-pi `/loop-seed` initiation flow (M2).
  *
  * Orchestrates: one-project-per-machine enforcement → clarification → repo
  * naming (existence check + fallbacks) → repo creation → local clone/workspace →
  * project scaffold (M3) → project config copy (M5) → `.pi/` state → active-project record.
  *
  * UI is injected by the caller so the same flow drives both the interactive
- * `/seed` command and the `npm run seed` fallback CLI:
+ * `/loop-seed` command and the `npm run seed` fallback CLI:
  *
  *   {
  *     askQuestions: async (questions) => answers | { usedAssumptions: true },
@@ -71,7 +71,7 @@ export function activeProjectRefusal(active) {
 		`"${active.projectName}" (${active.repo}).\n\n` +
 		`The harness enforces exactly one active project per machine at a time so the ` +
 		`loop's state, lock file, and budget accounting stay unambiguous.\n\n` +
-		`Use \`/stop\` (or \`npm run stop\`) to finish that project, then run \`/seed\` again.`
+		`Use \`/loop-stop\` (or \`npm run stop\`) to finish that project, then run \`/loop-seed\` again.`
 	);
 }
 
@@ -213,9 +213,9 @@ async function cloneRepo(workspace, repoName, owner, repoFullName) {
 }
 
 /**
- * Main `/seed` orchestration.
+ * Main `/loop-seed` orchestration.
  *
- * @param {string} description the text after `/seed`
+ * @param {string} description the text after `/loop-seed`
  * @param {object} io          injected UI handlers (see module docblock)
  * @param {object} [opts]      { owner?, githubConfig? } for tests/overrides
  * @returns {Promise<{ ok: boolean, message: string, state?: object }>}
@@ -242,7 +242,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 		return {
 			ok: false,
 			message:
-				"Could not determine your GitHub account. Run `gh auth login`, then `gh auth status`, then try /seed again.",
+				"Could not determine your GitHub account. Run `gh auth login`, then `gh auth status`, then try /loop-seed again.",
 		};
 	}
 	notify(`GitHub account: ${owner}`);
@@ -329,7 +329,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 	if (io.confirmRepo && repoName) {
 		const confirmed = await io.confirmRepo(repoFullName, visibility);
 		if (!confirmed) {
-			return { ok: false, message: `/seed cancelled — repo creation for ${repoFullName} was not confirmed.` };
+			return { ok: false, message: `/loop-seed cancelled — repo creation for ${repoFullName} was not confirmed.` };
 		}
 	}
 
@@ -395,7 +395,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 	notify(`Wrote project config (${configRes.files.length} files) in ${workspace}/.pi.`);
 
 	// M13: validate the generated config against the harness schema. An invalid
-	// generated config fails fast at /seed so the project never starts with a
+	// generated config fails fast at /loop-seed so the project never starts with a
 	// broken config.
 	const cfgValid = validateConfig(configRes.config || {});
 	if (!cfgValid.ok) {
@@ -435,7 +435,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 	notify(`Active project recorded: ${repoFullName}`);
 
 	// 10. Start the autonomous loop (M6, plan.md §13.1). Launch it detached under
-	// nohup so /seed returns immediately and the loop runs in the background:
+	// nohup so /loop-seed returns immediately and the loop runs in the background:
 	//
 	//   nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &
 	//
@@ -462,7 +462,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 
 /**
  * Launch the loop process detached under nohup (plan.md §13.1 / `npm run loop`
- * auto-start during /seed). The loop script resolves the active project itself,
+ * auto-start during /loop-seed). The loop script resolves the active project itself,
  * so we only need to give it the workspace cwd and redirect output to the loop
  * log.
  *

@@ -4,12 +4,12 @@
  * Provides:
  *
  *   - `validateConfig(config)` — validates a parsed config object against the
- *     harness JSON-Schema (`config/config.schema.json`). Fails fast at `/seed`
+ *     harness JSON-Schema (`config/config.schema.json`). Fails fast at `/loop-seed`
  *     and loop start when the config is invalid, with a clear list of problems.
  *   - `syncConfig(workspace)` — recopies `config/config.default.json` into
  *     `{workspace}/.pi/config.json` while preserving project-specific values
  *     (name, repo, owner, ownerEmail, demoUrl, defaultBranch) and any
- *     user customisations under a `custom` key (plan.md §3.3 `/sync-config`).
+ *     user customisations under a `custom` key (plan.md §3.3 `/loop-sync-config`).
  *
  * Validation uses a lightweight structural check (no external validator
  * dependency beyond what the harness already ships). It checks the top-level
@@ -44,7 +44,7 @@ const TOP_LEVEL = [
  * Validate a parsed config object against the harness JSON-Schema.
  * Returns `{ ok, errors }` where errors is an array of human-readable
  * problem strings. Fails fast: the caller should treat `!ok` as fatal at
- * `/seed` / loop start.
+ * `/loop-seed` / loop start.
  *
  * @param {object} config parsed .pi/config.json
  * @returns {{ ok: boolean, errors: string[] }}
@@ -181,7 +181,7 @@ export async function readProjectConfig(workspace) {
 
 /**
  * Sync `{workspace}/.pi/config.json` back to the harness defaults while
- * preserving project-specific values (plan.md §3.3 `/sync-config`).
+ * preserving project-specific values (plan.md §3.3 `/loop-sync-config`).
  *
  * Preserved from the current config:
  *   - the whole `project` section (name, repo, owner, ownerEmail, demoUrl,
@@ -229,7 +229,7 @@ export async function syncConfig(workspace, opts = {}) {
 
 /**
  * Compute the top-level keys that changed between the merged (new) config and
- * the current one — used to report what `/sync-config` updated.
+ * the current one — used to report what `/loop-sync-config` updated.
  */
 function diffKeys(merged, current) {
 	const changed = [];

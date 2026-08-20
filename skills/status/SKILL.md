@@ -1,13 +1,13 @@
 ---
 name: status
 description: >
-  Build the auto-pi `/status` report: active project, loop status, last persona
+  Build the auto-pi `/loop-status` report: active project, loop status, last persona
   run, open issues/PRs, and budget usage (plan.md §3.3, M13).
 ---
 
 # status
 
-Builds the `/status` report for the auto-pi harness (plan.md §3.3, M13).
+Builds the `/loop-status` report for the auto-pi harness (plan.md §3.3, M13).
 
 ## Report contents
 
@@ -24,7 +24,7 @@ The report includes:
 
 ## Usage
 
-The interactive `/status` command (`extensions/harness.ts`) and the fallback CLI
+The interactive `/loop-status` command (`extensions/harness.ts`) and the fallback CLI
 (`scripts/status.js`) both delegate to `buildStatus()` in this skill, so they
 report identical results.
 

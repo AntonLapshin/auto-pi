@@ -1,8 +1,8 @@
 /**
- * The auto-pi `/loop` and `/stop` commands (M6).
+ * The auto-pi `/loop` and `/loop-stop` commands (M6).
  *
  * `/loop` starts the autonomous loop for the active project (or reports that a
- * loop is already running). `/stop` stops it by writing the stop file.
+ * loop is already running). `/loop-stop` stops it by writing the stop file.
  *
  * Both reuse the shared core in `extensions/loop/orchestrator.js` (also used by
  * the `npm run loop` / `npm run stop` fallback CLIs) so the interactive commands
@@ -36,7 +36,7 @@ export default function (pi: ExtensionAPI) {
 			const lock = await checkLock(workspace);
 			if (lock.locked) {
 				notify(
-					`A loop is already running for this project (PID ${lock.pid}). Use /stop to stop it.`,
+					`A loop is already running for this project (PID ${lock.pid}). Use /loop-stop to stop it.`,
 					"warning",
 				);
 				return;
@@ -52,7 +52,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Start the loop detached (nohup) so the interactive session is not
-			// blocked, matching the `/seed` launch pattern.
+			// blocked, matching the `/loop-seed` launch pattern.
 			const { execa } = await import("execa");
 			try {
 				// Launch the fallback CLI under nohup, capturing output to the loop log.
@@ -72,7 +72,7 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	pi.registerCommand("stop", {
+	pi.registerCommand("loop-stop", {
 		description: "Stop the autonomous loop for the active project (writes the stop file)",
 		handler: async (_args, ctx) => {
 			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>

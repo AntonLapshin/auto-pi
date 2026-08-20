@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/sync-config` command (M13, plan.md §3.3).
+ * Fallback CLI entry for the auto-pi `/loop-sync-config` command (M13, plan.md §3.3).
  *
  * Recopies the harness config defaults into `{project}/.pi/config.json` while
  * preserving project-specific values (name, repo, owner, ownerEmail, demoUrl,

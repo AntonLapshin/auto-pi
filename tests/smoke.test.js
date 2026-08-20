@@ -44,7 +44,7 @@ test("package.json manifest is well-formed", () => {
 });
 
 test("status is implemented; loop/stop are implemented (M13)", () => {
-	// /seed, /doctor, /loop, /stop, /status are all implemented. status must
+	// /loop-seed, /loop-doctor, /loop, /loop-stop, /loop-status are all implemented. status must
 	// no longer report "not implemented" — it reports either the active project
 	// report or the missing-active-project error.
 	let statusOut = "";

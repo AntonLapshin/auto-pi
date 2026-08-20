@@ -1,11 +1,11 @@
-# Milestone 2: `/seed` Initiation & Repo Creation
+# Milestone 2: `/loop-seed` Initiation & Repo Creation
 
 **Depends on:** Milestone 0, Milestone 1
 **Reference:** plan.md §2.2, §3.1, §8.1–8.5, §28 "Milestone 2"
 
 ## Goal
 
-Build the initiation portion of `/seed`: clarification, repo naming, repo existence check, GitHub repo creation, and local workspace creation. (Project scaffolding is a later milestone.)
+Build the initiation portion of `/loop-seed`: clarification, repo naming, repo existence check, GitHub repo creation, and local workspace creation. (Project scaffolding is a later milestone.)
 
 ## Tasks
 
@@ -33,9 +33,9 @@ Build the initiation portion of `/seed`: clarification, repo naming, repo existe
 ## Acceptance Criteria
 
 ```text
-/seed Build a markdown notes app
+/loop-seed Build a markdown notes app
 ```
 
 runs a clarification, proposes/creates a repo (or asks for confirmation), clones it locally, and records the active project state.
 
-Re-running `/seed` while another project is active is refused with a clear message.
+Re-running `/loop-seed` while another project is active is refused with a clear message.

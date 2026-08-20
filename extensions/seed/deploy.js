@@ -12,7 +12,7 @@
  *
  * GitHub access is injected as a `gh(args, opts)` async function (same shape as
  * the helper in `extensions/seed/core.js`) so the logic is fully testable with
- * a fake and works identically from the interactive `/seed` command, the loop
+ * a fake and works identically from the interactive `/loop-seed` command, the loop
  * orchestrator (M6), and the fallback CLI.
  *
  * Plain JS on purpose — imported via jiti by the extension and directly by

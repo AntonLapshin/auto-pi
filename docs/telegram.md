@@ -15,7 +15,7 @@ Optional, env-driven Telegram lifecycle notifications (M11, plan §24).
    ```
 
 4. Enable notifications in `config.notifications.telegram` (or via
-   `/sync-config` after editing `.pi/config.json`):
+   `/loop-sync-config` after editing `.pi/config.json`):
 
    ```json
    "notifications": {

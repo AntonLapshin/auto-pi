@@ -1,5 +1,5 @@
 /**
- * Project config copy for the auto-pi `/seed` flow (M5).
+ * Project config copy for the auto-pi `/loop-seed` flow (M5).
  *
  * Copies `config/config.default.json` into `{project}/.pi/config.json`, filling
  * in the project-specific values (project name, repo, owner, ownerEmail, demo

@@ -1,12 +1,12 @@
 /**
- * Clarification for the auto-pi `/seed` flow (M2).
+ * Clarification for the auto-pi `/loop-seed` flow (M2).
  *
  * Turns a one-line project description into 3–6 high-value clarifying questions
  * whose answers shape the scaffold, and supports a "use assumptions" escape
  * hatch so the flow can proceed automatically without human input.
  *
  * The module is UI-agnostic: it only decides *what* to ask. Asking is the
- * caller's job (the interactive `/seed` command uses `ctx.ui`, the CLI fallback
+ * caller's job (the interactive `/loop-seed` command uses `ctx.ui`, the CLI fallback
  * uses readline), which keeps the logic testable and shared.
  *
  * Plain JS on purpose — shared between the interactive command and the CLI.
@@ -30,7 +30,7 @@
  * us). Common gaps: target audience/platform, CLI vs GUI, persistence needs,
  * auth, deployment, and whether scaffolding should stay minimal.
  *
- * @param {string} description the raw `/seed <description>` argument
+ * @param {string} description the raw `/loop-seed <description>` argument
  * @returns {Question[]} 3–6 questions
  */
 export function buildQuestions(description) {

@@ -17,7 +17,7 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
   and confirm all prerequisites pass.
 - [x] Run the pilot:
   ```text
-  /seed Build a markdown notes app with tags and search
+  /loop-seed Build a markdown notes app with tags and search
   ```
 - [x] Verify the full lifecycle against plan.md §27 and §31:
   - [x] clarification happens (or "use assumptions")
@@ -31,18 +31,18 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
   - [x] Engineer opens a PR with tests; Review Engineer verifies and approves; Engineer squashes and merges
   - [x] core coverage stays at 100%; UI stays thin
   - [x] logs written to `.pi/logs/` with no secrets
-  - [x] `/status` reflects active work (M13; loop `status`/summary reflects it)
-- [x] Confirm stop path: run and verify `/stop {project}` stops the loop cleanly.
-- [x] Verify one-project-per-machine enforcement: `/seed` refuses while the pilot is active.
+  - [x] `/loop-status` reflects active work (M13; loop `status`/summary reflects it)
+- [x] Confirm stop path: run and verify `/loop-stop {project}` stops the loop cleanly.
+- [x] Verify one-project-per-machine enforcement: `/loop-seed` refuses while the pilot is active.
 - [x] Drive project to completion: all milestones done, manifest `status: done`, final issue, loop stops.
 
 > **Pilot outcome:** ran the canonical example end-to-end on `AntonLapshin` — see
 > [`docs/pilot-report.md`](../docs/pilot-report.md). Repo created; PM filed
 > issues #1/#2; Engineer opened PRs #4/#5 (tests, 100% core coverage); Review
 > Engineer approved; Engineer squash-merged; CI green on `main`; local logs
-> clean of secrets; `/stop` and one-project-per-machine verified; project marked
+> clean of secrets; `/loop-stop` and one-project-per-machine verified; project marked
 > `status: done`. GitHub Pages was blocked for the private repo and handled via
-> `pi:needs-human` issue #3 (documented expected outcome). The `/status` command
+> `pi:needs-human` issue #3 (documented expected outcome). The `/loop-status` command
 > itself is implemented in M13 (it remains a stub). M13 hardening items found by
 > this pilot are listed in `docs/pilot-report.md` §6.
 

@@ -14,7 +14,7 @@ Add CI and GitHub Pages deployment to generated projects, including Vite base pa
 - [x] Inject Vite `base: "/{repo}/"` into `vite.config.ts` during scaffolding (plan.md §12.2).
 - [x] Inject demo URL `https://{owner}.github.io/{repo}/` into README during scaffolding.
 - [x] Implement Pages failure handling (plan.md §12.4, §29.1):
-  - warn during `/seed` about private-repo/plan Pages limitations
+  - warn during `/loop-seed` about private-repo/plan Pages limitations
   - detect deployment failure (via workflow run status check)
   - do not retry forever
   - create/update `pi:needs-human` + `pi:blocked` + `type:infra` issue with `PI-HUMAN` marker

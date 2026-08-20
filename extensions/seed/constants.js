@@ -1,7 +1,7 @@
 /**
- * Shared constants for the auto-pi `/seed` initiation flow (M2).
+ * Shared constants for the auto-pi `/loop-seed` initiation flow (M2).
  *
- * Plain JS so it can be imported both by the interactive `/seed` command
+ * Plain JS so it can be imported both by the interactive `/loop-seed` command
  * (`extensions/seed/index.ts` via jiti) and by the fallback CLI
  * (`scripts/seed.js` under `node scripts/seed.js`).
  */

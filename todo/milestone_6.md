@@ -24,7 +24,7 @@ Build the infinite autonomous loop: process lifecycle, lock/stop files, state sc
   11. repeat
 - [x] Use PID + lock file under `.pi/state/loop.lock` (plan.md §13.2) — refuse to start a second loop for the same project.
 - [x] Implement stop file `.pi/state/stop` (plan.md §13.3) checked every cycle.
-- [x] Start via `nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &` during `/seed`.
+- [x] Start via `nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &` during `/loop-seed`.
 
 ### State scanner + dispatcher
 - [x] Implement `extensions/loop/state-scanner.js`: read open issues, open PRs, CI status, labels, budget usage from GitHub.
@@ -47,6 +47,6 @@ Build the infinite autonomous loop: process lifecycle, lock/stop files, state sc
 ## Acceptance Criteria
 
 - Loop runs only one project at a time (lock enforced).
-- Loop can be stopped via stop file / `/stop`.
+- Loop can be stopped via stop file / `/loop-stop`.
 - Personas are selected per dispatch order.
 - Each persona invocation starts a fresh session with no memory of prior conversations.

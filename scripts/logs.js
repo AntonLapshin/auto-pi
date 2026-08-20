@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/logs` command (M13).
+ * Fallback CLI entry for the auto-pi `/loop-logs` command (M13).
  *
  * Shows the latest local loop / run logs for the active project.
  *

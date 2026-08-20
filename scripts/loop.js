@@ -3,7 +3,7 @@
  * Fallback CLI entry for the auto-pi `/loop` command (M6).
  *
  * Runs the infinite autonomous loop for the active project. This is the entry
- * launched under nohup during `/seed`:
+ * launched under nohup during `/loop-seed`:
  *
  *   nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &
  *

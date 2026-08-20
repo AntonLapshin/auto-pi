@@ -6,7 +6,7 @@ subdirectory here.
 
 | File / dir      | Purpose                                             | Milestone |
 |-----------------|-----------------------------------------------------|-----------|
-| `harness.ts`    | Registers `/status`, `/logs`, `/loop-resume`, `/sync-config` | M13 |
+| `harness.ts`    | Registers `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config` | M13 |
 | `joingonka.ts`  | JoinGonka provider (DeepSeek V4 Flash / Kimi)       | existing  |
 | `gonkaapi.ts`   | GonkaAPI provider (DeepSeek V4 Flash)               | existing  |
 | `seed/`         | Initiation + repo creation + project scaffold + CI/Pages + deploy health | M2, M3, M4 |

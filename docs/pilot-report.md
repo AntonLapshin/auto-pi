@@ -1,7 +1,7 @@
 # auto-pi Pilot Report (Milestone 12)
 
 Date: 2026-08-20
-Pilot command: `/seed Build a markdown notes app with tags and search`
+Pilot command: `/loop-seed Build a markdown notes app with tags and search`
 GitHub owner: `AntonLapshin`
 Pilot repo: `AntonLapshin/build-a-markdown-notes-app-with-tags-and-search`
 
@@ -18,7 +18,7 @@ harness (Milestone 12) and to surface hardening recommendations for Milestone 13
 
 ## 2. Seed / initiation
 
-- `/seed` (via `npm run seed -- "... " --yes`) completed: clarification used
+- `/loop-seed` (via `npm run seed -- "... " --yes`) completed: clarification used
   assumptions (`use assumptions` path), repo
   `AntonLapshin/build-a-markdown-notes-app-with-tags-and-search` was created
   (private), 23 scaffold files written, `.pi/config.json` + schema + local-secrets
@@ -78,10 +78,10 @@ auto-closed. ✓
 
 ## 4. Stop path & one-project-per-machine
 
-- `/stop` (via `npm run stop`) wrote `.pi/state/stop`; the loop detected it on
+- `/loop-stop` (via `npm run stop`) wrote `.pi/state/stop`; the loop detected it on
   the next cycle and exited cleanly (`dispatch: stop (stop file present)`,
   `Loop stopped`, lock released). ✓
-- A second `/seed` while the pilot was active was **refused** with the
+- A second `/loop-seed` while the pilot was active was **refused** with the
   one-project-per-machine message naming the active project. ✓
 
 ## 5. Success-criteria check (plan.md §28 M12)
@@ -96,7 +96,7 @@ auto-closed. ✓
 | PRs reviewed | ✅ #4, #5 by Review Engineer |
 | PRs merged | ✅ #4, #5 (squash) |
 | Core coverage 100% / UI thin | ✅ |
-| Project completes or stops safely | ✅ `manifest` status `done`; `/stop` verified |
+| Project completes or stops safely | ✅ `manifest` status `done`; `/loop-stop` verified |
 
 ## 6. Findings for Milestone 13 (hardening)
 
@@ -126,7 +126,7 @@ The pilot surface several real-world gaps worth hardening in M13:
    this as an expected mode (or run with a separate reviewer account).
 6. **Scaffold commit at seed.** The seed writes scaffold files to the working
    tree but does not commit/push the initial scaffold; the pilot committed it
-   manually so CI would run. Consider committing the scaffold in `/seed`.
+   manually so CI would run. Consider committing the scaffold in `/loop-seed`.
 
 ## 7. Artifacts / proof
 

@@ -4,12 +4,12 @@ Reference for the auto-pi project config (`config/config.default.json` and the
 generated `{project}/.pi/config.json`).
 
 The harness ships a default config (`config/config.default.json`) and a
-JSON-Schema (`config/config.schema.json`). At `/seed` time the default is copied
+JSON-Schema (`config/config.schema.json`). At `/loop-seed` time the default is copied
 to `{project}/.pi/config.json` with the `project` section filled in. The config
-is **validated** against the schema at `/seed` and at loop start (M13) — an
+is **validated** against the schema at `/loop-seed` and at loop start (M13) — an
 invalid config fails fast with a clear message.
 
-Use `/sync-config` (or `npm run sync-config`) to recopy the harness defaults
+Use `/loop-sync-config` (or `npm run sync-config`) to recopy the harness defaults
 into an existing project while preserving project-specific values.
 
 ## Sections

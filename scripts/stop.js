@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/stop` command (M6).
+ * Fallback CLI entry for the auto-pi `/loop-stop` command (M6).
  *
  * Stops the autonomous loop for the active project by writing the stop file
  * (plan.md §13.3). The loop process checks for this file every cycle and exits
  * cleanly. Also releases the loop lock if it is stale.
  *
  * Reuses the shared orchestrator helpers so the CLI and the interactive
- * `/stop` command behave identically.
+ * `/loop-stop` command behave identically.
  */
 
 import { fileURLToPath } from "node:url";

@@ -28,14 +28,14 @@ Harden the harness against real-world failure modes and productionize the remain
 - [ ] Log rotation honoring `logging.maxFileSizeMb` / `logging.rotate`.
 
 ### Config validation
-- [ ] Validate `config.json` against `config.schema.json` at loop start and `/seed` (zod or JSON schema).
-- [ ] `/sync-config` (recopy defaults while preserving project-specific values) — plan.md §3.3.
+- [ ] Validate `config.json` against `config.schema.json` at loop start and `/loop-seed` (zod or JSON schema).
+- [ ] `/loop-sync-config` (recopy defaults while preserving project-specific values) — plan.md §3.3.
 
 ### Remaining commands
-- [ ] `/status` — active project, loop status, last persona run, open issues/PRs, budget usage (plan.md §3.3).
-- [ ] `/logs` — show latest local logs.
+- [ ] `/loop-status` — active project, loop status, last persona run, open issues/PRs, budget usage (plan.md §3.3).
+- [ ] `/loop-logs` — show latest local logs.
 - [ ] `/loop-resume {project}` — resume a stopped/paused project if not completed.
-- [ ] Wire `/logs`, `/loop-resume`, `/sync-config` into extension index + `package.json` commands + fallback scripts.
+- [ ] Wire `/loop-logs`, `/loop-resume`, `/loop-sync-config` into extension index + `package.json` commands + fallback scripts.
 
 ### Documentation
 - [ ] Complete docs: installation, github-token, configuration, commands, personas, github-pages, telegram, troubleshooting (plan.md §4 `docs/`).
@@ -45,6 +45,6 @@ Harden the harness against real-world failure modes and productionize the remain
 
 - Loop survives transient failures without crashing.
 - Budget/rate limits stop the loop gracefully with clear logs.
-- Config is validated; invalid config fails fast at `/seed`/loop start.
-- `/status`, `/logs`, `/loop-resume`, `/sync-config` all work.
+- Config is validated; invalid config fails fast at `/loop-seed`/loop start.
+- `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config` all work.
 - Security: no secrets in logs/contexts/PRs.

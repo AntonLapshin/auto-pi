@@ -3,7 +3,7 @@ name: config
 description: >
   Validate the auto-pi project config (`config/config.schema.json`) and sync it
   back to harness defaults while preserving project-specific values
-  (`/sync-config`, plan.md §3.3). Fails fast at `/seed` and loop start when the
+  (`/loop-sync-config`, plan.md §3.3). Fails fast at `/loop-seed` and loop start when the
   config is invalid.
 ---
 
@@ -30,10 +30,10 @@ JSON-Schema (`config/config.schema.json`). It checks:
 - `logging.maxFileSizeMb` (>= 1), `logging.rotate` boolean
 
 The loop orchestrator calls `validateConfig` at the start of every cycle and
-`extensions/seed/core.js` validates the generated config at `/seed`. An invalid
+`extensions/seed/core.js` validates the generated config at `/loop-seed`. An invalid
 config fails fast with a clear list of problems instead of silently misbehaving.
 
-## Sync (`/sync-config`)
+## Sync (`/loop-sync-config`)
 
 `syncConfig(workspace)` recopies `config/config.default.json` into
 `{workspace}/.pi/config.json` while preserving:
@@ -45,7 +45,7 @@ config fails fast with a clear list of problems instead of silently misbehaving.
 
 Every other section is recopied from the defaults, so new default knobs added
 in later milestones propagate to existing projects without clobbering the
-project identity. Use `/sync-config` (or `npm run sync-config`) after upgrading
+project identity. Use `/loop-sync-config` (or `npm run sync-config`) after upgrading
 the harness to pick up new defaults.
 
 Core logic lives in `skills/config/core.js` (plain JS, shared with the loop

@@ -1,5 +1,5 @@
 /**
- * Scaffold generator for the auto-pi `/seed` flow (M3).
+ * Scaffold generator for the auto-pi `/loop-seed` flow (M3).
  *
  * Generates a demoable, testable React + Tailwind + TypeScript project inside
  * the freshly-cloned repo, using the Jinja-style `*.j2` templates in

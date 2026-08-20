@@ -1,5 +1,5 @@
 /**
- * Repo naming + existence for the auto-pi `/seed` flow (M2).
+ * Repo naming + existence for the auto-pi `/loop-seed` flow (M2).
  *
  * Derives a GitHub repo name from a project description, checks whether the
  * name is already taken by the owner, and falls back through alternatives in a
@@ -7,7 +7,7 @@
  * alternative is chosen and `github.autoCreateRepo` is on, it is accepted
  * automatically; otherwise the caller asks the user.
  *
- * Plain JS on purpose: shared between the interactive `/seed` command and the
+ * Plain JS on purpose: shared between the interactive `/loop-seed` command and the
  * `npm run seed` fallback CLI.
  */
 

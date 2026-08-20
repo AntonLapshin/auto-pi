@@ -12,8 +12,8 @@ deployed GitHub Pages demo — with minimal human supervision.
 
 ## Status
 
-Milestones 0–9 are in place: the harness skeleton, the `/doctor` environment
-prerequisite check (M1), the `/seed` initiation flow — clarification, repo
+Milestones 0–9 are in place: the harness skeleton, the `/loop-doctor` environment
+prerequisite check (M1), the `/loop-seed` initiation flow — clarification, repo
 naming & creation, local workspace, and one-project-per-machine enforcement
 (M2) — the React/Tailwind/TypeScript project scaffold (M3), the CI & GitHub
 Pages deployment workflows (M4), and the project config copy into
@@ -32,13 +32,13 @@ is implemented.
 
 **Milestone 12 (pilot) — run end-to-end.** A real pilot was run on the canonical
 example ("Build a markdown notes app with tags and search"): doctor passed,
-`/seed` created the repo + scaffold + config and started the loop, the PM
+`/loop-seed` created the repo + scaffold + config and started the loop, the PM
 planned and filed issues, the Engineer implemented and opened PRs, the Review
 Engineer verified and approved, the Engineer squash-merged, CI stayed green
 with 100% core coverage, local logs were written with no secrets, and the
 project was marked `done`. GitHub Pages (not available for private repos on the
 free plan) was handled as `pi:needs-human`. One-project-per-machine and the
-`/stop` path were verified. See [`docs/pilot-report.md`](docs/pilot-report.md)
+`/loop-stop` path were verified. See [`docs/pilot-report.md`](docs/pilot-report.md)
 for the full pilot log and the hardening recommendations it surfaced (M13).
 
 **Milestone 13 (hardening) — productionize.** The harness now survives real-world
@@ -50,9 +50,9 @@ detected and labelled `pi:conflict`, repeated per-issue attempts are capped
 (`limits.maxIssueAttempts`), and `loop.maxConsecutiveFailures` stops the loop
 with a repeated-failure reason. A budget guard (`skills/budget-guard`) enforces
 the per-cycle/per-day/cost limits and the per-persona token caps. Config is
-validated against the schema at `/seed` and loop start, and `/sync-config`
+validated against the schema at `/loop-seed` and loop start, and `/loop-sync-config`
 recopies defaults while preserving project values. The remaining commands
-(`/status`, `/logs`, `/loop-resume`, `/sync-config`) are implemented, all policies are
+(`/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`) are implemented, all policies are
 written (`policies/`), and the docs are complete (`docs/`). See
 [`todo/README.md`](todo/README.md) for the milestone plan.
 
@@ -72,13 +72,13 @@ written (`policies/`), and the docs are complete (`docs/`). See
 - **GitHub account** — with a token that can create repos, issues, PRs, and
   workflow runs. See [GitHub Token setup](#github-token-setup).
 
-Run `/doctor` (or `npm run doctor`) to validate all prerequisites — it reports
+Run `/loop-doctor` (or `npm run doctor`) to validate all prerequisites — it reports
 exactly what is missing and how to fix it (implemented in M1).
 
 ## One active project per machine
 
 The harness enforces **exactly one active project per machine** at a time. This keeps
-the loop's state, lock file, and budget accounting unambiguous. `/seed` refuses to run
+the loop's state, lock file, and budget accounting unambiguous. `/loop-seed` refuses to run
 while another project is active, with a clear message. See
 [`extensions/seed`](extensions/seed) (M2) for the enforcement logic.
 
@@ -93,27 +93,27 @@ pi install /path/to/auto-pi
 
 Pi registers the package's extensions from the `pi` block in `package.json`, which
 loads the provider extensions and the harness slash commands. After installation the
-following commands are available (interactively as `/seed`, `/stop`, `/status`,
-`/logs`, `/loop-resume`, `/sync-config`, `/doctor`):
+following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-status`,
+`/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
 
 | Command       | Purpose                                      | Milestone |
 |---------------|----------------------------------------------|-----------|
-| `/seed`       | Initiate a new project (clarify, create repo, scaffold) | M2 |
-| `/stop`       | Stop the autonomous loop                     | M6        |
-| `/status`     | Active project, loop, and persona status     | M13       |
-| `/logs`       | Show the latest local logs                   | M13       |
+| `/loop-seed`   | Initiate a new project (clarify, create repo, scaffold) | M2 |
+| `/loop-stop`   | Stop the autonomous loop                     | M6        |
+| `/loop-status` | Active project, loop, and persona status     | M13       |
+| `/loop-logs`   | Show the latest local logs                   | M13       |
 | `/loop-resume` | Resume a stopped/paused project's loop       | M13       |
-| `/sync-config`| Recopy config defaults, preserving project values | M13 |
-| `/doctor`     | Validate environment prerequisites           | M1 (implemented) |
+| `/loop-sync-config`| Recopy config defaults, preserving project values | M13 |
+| `/loop-doctor` | Validate environment prerequisites           | M1 (implemented) |
 
 Each command also has a fallback `npm run <cmd>` / `node scripts/<cmd>.js` entry for
 non-interactive use (see [`scripts/`](scripts)).
 
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
-> (`extensions/harness.ts` for `/status`, `/logs`, `/loop-resume`, `/sync-config`;
-> `extensions/seed` for `/seed`; `extensions/loop` for `/loop`/`/stop`;
-> `extensions/doctor` for `/doctor`) — the `pi` block in `package.json` only declares resource
+> (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`;
+> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`;
+> `extensions/doctor` for `/loop-doctor`) — the `pi` block in `package.json` only declares resource
 > directories, matching the existing repo convention.
 
 To verify the installation loaded cleanly:
@@ -122,7 +122,7 @@ To verify the installation loaded cleanly:
 pi --version
 ```
 
-then start Pi and confirm `/seed`, `/stop`, `/status`, `/doctor` show up in
+then start Pi and confirm `/loop-seed`, `/loop-stop`, `/loop-status`, `/loop-doctor` show up in
 `/`-command completion.
 
 ## GitHub Token setup

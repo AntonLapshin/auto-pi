@@ -17,7 +17,7 @@ The Vite `base` is set to `/{repo}/` and the README demo URL to
 ## Availability
 
 GitHub Pages is only available for **public** repos on the free plan (Pro/Team
-allow private Pages). At `/seed`, a private repo triggers a warning that Pages
+allow private Pages). At `/loop-seed`, a private repo triggers a warning that Pages
 may be blocked. When deployment fails, the harness surfaces a
 `pi:needs-human` + `pi:blocked` + `type:infra` issue instead of retrying forever.
 

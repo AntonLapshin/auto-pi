@@ -3,7 +3,7 @@
  *
  * Plain JS on purpose — imported both by `scripts/loop.js` / `scripts/stop.js`
  * (fallback CLIs under `node scripts/*.js`) and by `extensions/loop/index.ts`
- * (the interactive `/loop` / `/stop` commands, loaded by pi through jiti).
+ * (the interactive `/loop` / `/loop-stop` commands, loaded by pi through jiti).
  *
  * All loop state lives inside the active project's workspace under `.pi/`:
  *

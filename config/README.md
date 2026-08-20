@@ -12,7 +12,7 @@ This directory is version-controlled (no secrets). Local secrets live in the gen
 
 ## Project config copy (M5)
 
-At `/seed` time the harness copies `config.default.json` to `{project}/.pi/config.json` and fills
+At `/loop-seed` time the harness copies `config.default.json` to `{project}/.pi/config.json` and fills
 in the `project` section (name, repo, owner, ownerEmail, demo URL, default branch). It also
 generates:
 

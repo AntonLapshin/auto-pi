@@ -1,11 +1,11 @@
 # Milestone 1: Environment Doctor
 
 **Depends on:** Milestone 0
-**Reference:** plan.md §3.3 (`/doctor`), §6.1 (prerequisites)
+**Reference:** plan.md §3.3 (`/loop-doctor`), §6.1 (prerequisites)
 
 ## Goal
 
-Build the `/doctor` command (and `npm run doctor` fallback) that validates all environment prerequisites before any project work begins.
+Build the `/loop-doctor` command (and `npm run doctor` fallback) that validates all environment prerequisites before any project work begins.
 
 ## Tasks
 
@@ -24,7 +24,7 @@ Build the `/doctor` command (and `npm run doctor` fallback) that validates all e
 - [x] Output a formatted report: each check with ✅/❌, and an overall summary line.
 - [x] On failure, print actionable remediation hints (which tool to install, how to run `gh auth login`, which scopes to enable).
 - [x] Implement `scripts/doctor.js` as the CLI entry (exit code non-zero if any required check fails).
-- [x] Register `/doctor` in `package.json` `pi` block and in the extension `index.js`.
+- [x] Register `/loop-doctor` in `package.json` `pi` block and in the extension `index.js`.
 
 ## Acceptance Criteria
 
@@ -32,6 +32,6 @@ Build the `/doctor` command (and `npm run doctor` fallback) that validates all e
 npm run doctor
 ```
 
-and `/doctor` both produce a clear pass/fail report for all prerequisites.
+and `/loop-doctor` both produce a clear pass/fail report for all prerequisites.
 
 A clean machine shows exactly which prerequisites are missing and how to fix each.
