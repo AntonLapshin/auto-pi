@@ -32,6 +32,7 @@ import { scanGithubState, readBudgetUsage, budgetExceeded } from "./state-scanne
 import { dispatch } from "./dispatcher.js";
 import { prepareRun, runPersona, newRunId } from "./persona-runner.js";
 import { buildPmContext } from "./pm-context.js";
+import { buildEngineerContext } from "./engineer-context.js";
 import {
 	LOOP_LOCK_REL,
 	STOP_FILE_REL,
@@ -285,9 +286,11 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 
 		const runId = newRunId(decision.persona);
 
-		// PM persona gets its focused context packer (M7, plan.md §21.1); other
-		// personas use the generic minimal context builder.
+		// PM persona gets its focused context packer (M7, plan.md §21.1); the
+		// Engineer persona gets its focused context packer (M8, plan.md §21.1);
+		// other personas use the generic minimal context builder.
 		const isPm = decision.persona === "pm";
+		const isEngineer = decision.persona === "engineer";
 		const { contextFile } = isPm
 			? await prepareRun(workspace, runId, {
 					persona: decision.persona,
@@ -302,12 +305,26 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 						ghFn: opts.gh,
 					}),
 				})
-			: await prepareRun(workspace, runId, {
-					persona: decision.persona,
-					decision,
-					config,
-					state,
-				});
+			: isEngineer
+				? await prepareRun(workspace, runId, {
+						persona: decision.persona,
+						decision,
+						config,
+						state,
+						buildContext: (payload) => buildEngineerContext({
+							workspace,
+							config: payload.config,
+							state: payload.state,
+							decision: payload.decision,
+							ghFn: opts.gh,
+						}),
+					})
+				: await prepareRun(workspace, runId, {
+						persona: decision.persona,
+						decision,
+						config,
+						state,
+					});
 
 		log(`running persona "${decision.persona}" (run ${runId})...`);
 		const result = await runPersona({

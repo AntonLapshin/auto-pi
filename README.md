@@ -12,13 +12,15 @@ deployed GitHub Pages demo — with minimal human supervision.
 
 ## Status
 
-Milestones 0–5 are in place: the harness skeleton, the `/doctor` environment
+Milestones 0–7 are in place: the harness skeleton, the `/doctor` environment
 prerequisite check (M1), the `/seed` initiation flow — clarification, repo
 naming & creation, local workspace, and one-project-per-machine enforcement
 (M2) — the React/Tailwind/TypeScript project scaffold (M3), the CI & GitHub
 Pages deployment workflows (M4), and the project config copy into
-`.pi/config.json` + the git-ignored local-secrets scaffold (M5) are implemented.
-The remaining loop commands report "not implemented"
+`.pi/config.json` + the git-ignored local-secrets scaffold (M5), the loop
+orchestrator (M6), and the PM persona (M7). The Engineer persona (M8) — issue
+implementation, testing, PR creation, review-comment addressing, and squash
+merge — is implemented. The remaining loop commands report "not implemented"
 until later milestones fill them in. See
 [`todo/README.md`](todo/README.md) for the milestone plan.
 

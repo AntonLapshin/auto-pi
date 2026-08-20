@@ -67,6 +67,9 @@ export const LABELS = {
 	MERGE_READY: "pi:merge-ready",
 	CHANGES_REQUESTED: "pi:changes-requested",
 	REVIEW_REQUESTED: "pi:review-requested",
+	REVIEW_NEEDED: "pi:review-needed",
+	MERGE_BLOCKED: "pi:merge-blocked",
+	CONFLICT: "pi:conflict",
 	TYPE_INFRA: "type:infra",
 };
 
