@@ -30,7 +30,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { scanGithubState, readBudgetUsage, budgetExceeded } from "./state-scanner.js";
 import { dispatch } from "./dispatcher.js";
-import { prepareRun, runPersona, newRunId } from "./persona-runner.js";
+import { prepareRun, runPersonaWithRetry, newRunId } from "./persona-runner.js";
 import { runReliabilityChecks } from "./reliability.js";
 import { checkConsecutiveFailures, checkCycleBudget, budgetLimits } from "../../skills/budget-guard/core.js";
 import { validateConfig } from "../../skills/config/core.js";
@@ -455,13 +455,14 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 						});
 
 		log(`running persona "${decision.persona}" (run ${runId})...`);
-		const result = await runPersona({
+		const result = await runPersonaWithRetry({
 			workspace,
 			persona: decision.persona,
 			runId,
 			contextFile,
 			config,
 			env: opts.env,
+			onRetry: (info) => log(`persona retry ${info.attempt}: ${info.reason} (backoff ${info.delayMs}ms)`),
 		});
 
 		// 9. Log result (runPersona already appended the ledger line; surface here).

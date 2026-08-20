@@ -11,7 +11,10 @@
   "pi": {
     "model": "",
     "provider": "",
-    "contextMaxTokens": 150000
+    "contextMaxTokens": 150000,
+    "maxRetries": 2,
+    "retryBaseDelayMs": 5000,
+    "retryMaxDelayMs": 30000
   },
   "loop": {
     "intervalSeconds": 60,

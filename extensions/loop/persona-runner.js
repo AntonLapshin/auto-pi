@@ -23,6 +23,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync, existsSync } from "node:fs";
 import { RUNS_DIR_REL } from "./constants.js";
 import {
 	appendRunRecord,
@@ -31,6 +32,82 @@ import {
 	buildRunRecord,
 } from "../../skills/logging/core.js";
 import { personaTokenFlags } from "../../skills/budget-guard/core.js";
+import { backoffDelay, sleep } from "../../skills/github/core.js";
+
+/**
+ * Default number of retries for a failed persona (LLM) invocation, in addition
+ * to the first attempt (config.pi.maxRetries).
+ */
+export const DEFAULT_PERSONA_MAX_RETRIES = 2;
+
+/** Default base backoff delay (ms) between persona retries (config.pi.retryBaseDelayMs). */
+export const DEFAULT_PERSONA_RETRY_BASE_DELAY_MS = 5000;
+
+/** Default max backoff delay (ms) for persona retries (config.pi.retryMaxDelayMs). */
+export const DEFAULT_PERSONA_RETRY_MAX_DELAY_MS = 30000;
+
+/**
+ * True when a persona (LLM) invocation failure looks transient and is worth
+ * retrying: network/timeout/server errors, empty output, or a process that
+ * failed to spawn. Non-transient failures (e.g. bad config, auth rejection)
+ * fail fast instead of burning retries.
+ *
+ * @param {object} res { exitCode, stdout, stderr }
+ * @returns {boolean}
+ */
+export function isRetryablePersonaFailure(res) {
+	const exitCode = Number(res?.exitCode);
+	const stderr = String(res?.stderr || "");
+	const stdout = String(res?.stdout || "");
+
+	// Process failed to spawn / crashed (no real exit code) → retry.
+	if (res?.exitCode === null || res?.exitCode === undefined || Number.isNaN(exitCode)) return true;
+
+	// Empty output with a non-zero exit is suspicious (likely a transient
+	// provider/network failure) → retry.
+	if (exitCode !== 0 && !stdout && !stderr) return true;
+
+	const text = `${stdout}\n${stderr}`;
+	return (
+		/rate limit/i.test(text) ||
+		/rate_limit/i.test(text) ||
+		/timed?\s*out/i.test(text) ||
+		/network/i.test(text) ||
+		/ECONNRESET/i.test(text) ||
+		/ETIMEDOUT/i.test(text) ||
+		/EPIPE/i.test(text) ||
+		/5\d\d\b/.test(text) ||
+		/temporarily unavailable/i.test(text) ||
+		/connection refused/i.test(text) ||
+		/502 bad gateway/i.test(text) ||
+		/503 service unavailable/i.test(text) ||
+		/504 gateway timeout/i.test(text) ||
+		/429/.test(text) ||
+		/overloaded/i.test(text) ||
+		/insufficient_quota/i.test(text) ||
+		/context_length_exceeded/i.test(text)
+	);
+}
+
+/**
+ * Read the retry settings from a parsed config (config.pi.maxRetries,
+ * retryBaseDelayMs, retryMaxDelayMs), applying defaults.
+ *
+ * @param {object} [config]
+ * @returns {{ maxRetries: number, baseDelayMs: number, maxDelayMs: number }}
+ */
+export function personaRetrySettings(config = {}) {
+	const pi = config?.pi || {};
+	const num = (v, def) => {
+		const n = Number(v);
+		return Number.isFinite(n) && n >= 0 ? n : def;
+	};
+	return {
+		maxRetries: num(pi.maxRetries, DEFAULT_PERSONA_MAX_RETRIES),
+		baseDelayMs: num(pi.retryBaseDelayMs, DEFAULT_PERSONA_RETRY_BASE_DELAY_MS),
+		maxDelayMs: num(pi.retryMaxDelayMs, DEFAULT_PERSONA_RETRY_MAX_DELAY_MS),
+	};
+}
 
 /**
  * Generate a unique run ID: `{persona}-{yyyymmdd-hhmmss}-{shortId}`.
@@ -68,6 +145,31 @@ export async function loadPersonaPrompt(persona, opts = {}) {
 		}
 	}
 	// Minimal built-in fallback so the loop can run before M7–M9 ship prompts.
+	return [
+		`You are the "${persona}" persona in the auto-pi autonomous engineering team.`,
+		`Work autonomously on the task described in the context file.`,
+		`Do not ask for confirmation; act, test, and report.`,
+	].join("\n");
+}
+
+/**
+ * Synchronous persona-prompt loader (used by `buildPersonaArgs`). Reads
+ * `personas/{name}.md` when present, else returns the minimal built-in prompt.
+ *
+ * @param {string} persona
+ * @param {object} [opts] { personasDir? }
+ * @returns {string}
+ */
+export function loadPersonaPromptSync(persona, opts = {}) {
+	const dir = opts.personasDir || new URL("../../personas/", import.meta.url).pathname;
+	const file = join(dir, `${persona}.md`);
+	if (existsSync(file)) {
+		try {
+			return readFileSync(file, "utf8");
+		} catch {
+			// fall through to built-in
+		}
+	}
 	return [
 		`You are the "${persona}" persona in the auto-pi autonomous engineering team.`,
 		`Work autonomously on the task described in the context file.`,
@@ -169,6 +271,9 @@ export async function prepareRun(workspace, runId, payload) {
  * @param {string} [opts.task]       optional task instruction (defaults to reading the context)
  * @param {object} [opts.config]     parsed config (model/provider)
  * @param {object} [opts.env]        extra env vars (e.g. PI_MODEL / PI_PROVIDER)
+ * @param {Function} [opts.execute]  optional underlying executor
+ *                                  `(args, childEnv, cwd) => Promise<{ exitCode, stdout, stderr }>`
+ *                                  used for tests; defaults to running `pi` via execa.
  * @returns {Promise<{ ok: boolean, exitCode: number, stdout: string, stderr: string, runDir: string }>}
  */
 export async function runPersona({
@@ -179,13 +284,41 @@ export async function runPersona({
 	task,
 	config,
 	env,
+	execute,
 }) {
-	const { execa } = await import("execa");
-
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
 
-	const prompt = await loadPersonaPrompt(persona);
+	const args = buildPersonaArgs({ persona, runId, contextFile, task, config });
+	const childEnv = { ...process.env, ...(env || {}) };
+
+	const startedAt = new Date().toISOString();
+	const res = await (execute
+		? execute(args, childEnv, workspace)
+		: executePi(args, childEnv, workspace));
+	const finishedAt = new Date().toISOString();
+
+	return finalizePersonaRun({
+		workspace,
+		persona,
+		runId,
+		config,
+		res,
+		startedAt,
+		finishedAt,
+		runDir,
+	});
+}
+
+/**
+ * Build the `pi` CLI argument list for a persona run (shared by `runPersona`
+ * and `runPersonaWithRetry`).
+ *
+ * @param {object} p { persona, runId, contextFile, task?, config? }
+ * @returns {string[]}
+ */
+export function buildPersonaArgs({ persona, runId, contextFile, task, config }) {
+	const prompt = loadPersonaPromptSync(persona);
 	const taskText = task || `Read the context file and perform the work described for the "${persona}" persona.`;
 
 	const args = [
@@ -206,22 +339,39 @@ export async function runPersona({
 	// level as well as the loop level. Unknown flags are ignored by pi.
 	for (const flag of personaTokenFlags(config)) args.push(flag);
 
-	const childEnv = { ...process.env, ...(env || {}) };
+	return args;
+}
 
-	const startedAt = new Date().toISOString();
-	let res;
+/**
+ * The real underlying `pi` invocation via execa. Never throws.
+ *
+ * @returns {Promise<{ exitCode: number, stdout: string, stderr: string }>}
+ */
+export async function executePi(args, childEnv, workspace) {
+	const { execa } = await import("execa");
 	try {
-		res = await execa("pi", args, {
+		const res = await execa("pi", args, {
 			cwd: workspace,
 			env: childEnv,
 			reject: false,
 			timeout: 0, // persona work can take a while; loop controls cadence
 		});
+		return { exitCode: res.exitCode, stdout: res.stdout || "", stderr: res.stderr || "" };
 	} catch (err) {
-		res = { exitCode: err?.exitCode ?? 1, stdout: "", stderr: String(err?.message || err) };
+		return { exitCode: err?.exitCode ?? 1, stdout: "", stderr: String(err?.message || err) };
 	}
-	const finishedAt = new Date().toISOString();
+}
 
+/**
+ * Post-process a completed persona run: capture output, parse tokens, append
+ * the run ledger + error records, accumulate token usage, and return the
+ * result object. This runs exactly once per logical run (after retries are
+ * exhausted) so intermediate failed attempts are never double-logged.
+ *
+ * @param {object} p
+ * @returns {Promise<{ ok, exitCode, stdout, stderr, runDir, tokens, durationSeconds }>}
+ */
+export async function finalizePersonaRun({ workspace, persona, runId, config, res, startedAt, finishedAt, runDir }) {
 	// Capture output in the run dir.
 	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch(() => {});
 	await writeFile(join(runDir, "stderr.txt"), res.stderr || "", "utf8").catch(() => {});
@@ -273,7 +423,95 @@ export async function runPersona({
 		stderr: res.stderr || "",
 		runDir,
 		tokens,
+		durationSeconds,
 	};
+}
+
+/**
+ * Run a fresh Pi persona session with retry/backoff around the underlying LLM
+ * invocation (M13 hardening for unstable providers).
+ *
+ * This is the loop's entry point for launching a persona. It wraps `runPersona`
+ * so a transient failure of a single LLM command (network blip, 5xx, timeout,
+ * rate limit, empty output) is retried with exponential backoff + jitter
+ * instead of burning a whole loop cycle. Non-transient failures (e.g. bad
+ * config, auth rejection) fail fast without retrying.
+ *
+ * Retry behaviour is configurable via `config.pi.*`:
+ *   - `maxRetries`        (default 2)   retries in addition to the first attempt
+ *   - `retryBaseDelayMs`  (default 5000) base backoff, doubles per retry
+ *   - `retryMaxDelayMs`   (default 30000) cap on the backoff delay
+ *
+ * Only the final result is logged/recorded by `runPersona`; intermediate
+ * failed attempts are surfaced via the optional `onRetry` callback (used by the
+ * orchestrator for loop logging) and are NOT appended to the run ledger.
+ *
+ * @param {object} opts  same as `runPersona` (workspace, persona, runId,
+ *                       contextFile, task, config, env, execute)
+ * @param {Function} [opts.onRetry] `(info) => void` called before each retry with
+ *                       { attempt, reason, delayMs }
+ * @returns {Promise<object>} the `runPersona` result, plus `retries` (number of
+ *                       retries performed) and `retryable` (whether the last
+ *                       failure was considered retryable).
+ */
+export async function runPersonaWithRetry(opts = {}) {
+	const { maxRetries, baseDelayMs, maxDelayMs } = personaRetrySettings(opts.config);
+	const onRetry = typeof opts.onRetry === "function" ? opts.onRetry : () => {};
+	const execute = opts.execute || executePi;
+
+	const {
+		workspace,
+		persona,
+		runId,
+		contextFile,
+		task,
+		config,
+		env,
+	} = opts;
+
+	const runDir = join(workspace, RUNS_DIR_REL, runId);
+	await mkdir(runDir, { recursive: true });
+
+	const args = buildPersonaArgs({ persona, runId, contextFile, task, config });
+	const childEnv = { ...process.env, ...(env || {}) };
+
+	let retries = 0;
+	let lastRes = null;
+	let lastRetryable = false;
+
+	while (true) {
+		const res = await execute(args, childEnv, workspace);
+		lastRes = res;
+		if (res.exitCode === 0) break;
+
+		const retryable = isRetryablePersonaFailure(res);
+		lastRetryable = retryable;
+		if (!retryable || retries >= maxRetries) break;
+
+		const delayMs = backoffDelay(retries, { baseDelayMs, maxDelayMs });
+		onRetry({
+			attempt: retries + 1,
+			reason: (res.stderr || res.stdout || "").slice(0, 200) || "persona invocation failed",
+			delayMs,
+		});
+		await sleep(delayMs);
+		retries += 1;
+	}
+
+	const startedAt = new Date().toISOString();
+	const finishedAt = new Date().toISOString();
+	const result = await finalizePersonaRun({
+		workspace,
+		persona,
+		runId,
+		config,
+		res: lastRes,
+		startedAt,
+		finishedAt,
+		runDir,
+	});
+
+	return { ...result, retries, retryable: lastRetryable };
 }
 
 /**

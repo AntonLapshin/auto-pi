@@ -43,7 +43,9 @@ for the full pilot log and the hardening recommendations it surfaced (M13).
 
 **Milestone 13 (hardening) — productionize.** The harness now survives real-world
 failures: GitHub/network calls retry with exponential backoff and back off on
-rate limits (`skills/github`); stale branches are cleaned up, merge conflicts are
+rate limits (`skills/github`); a failed persona (LLM) invocation is retried with
+backoff (`config.pi.maxRetries`, default 2) so an unstable provider doesn't burn a
+loop cycle; stale branches are cleaned up, merge conflicts are
 detected and labelled `pi:conflict`, repeated per-issue attempts are capped
 (`limits.maxIssueAttempts`), and `loop.maxConsecutiveFailures` stops the loop
 with a repeated-failure reason. A budget guard (`skills/budget-guard`) enforces
