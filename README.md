@@ -29,6 +29,18 @@ Optional Telegram lifecycle notifications (M11) — `skills/telegram-notify`
 project-done / needs-human / budget-stop / manual-stop messages, env-driven
 config, non-fatal when disabled or env vars are absent, and secret redaction —
 is implemented.
+
+**Milestone 12 (pilot) — run end-to-end.** A real pilot was run on the canonical
+example ("Build a markdown notes app with tags and search"): doctor passed,
+`/seed` created the repo + scaffold + config and started the loop, the PM
+planned and filed issues, the Engineer implemented and opened PRs, the Review
+Engineer verified and approved, the Engineer squash-merged, CI stayed green
+with 100% core coverage, local logs were written with no secrets, and the
+project was marked `done`. GitHub Pages (not available for private repos on the
+free plan) was handled as `pi:needs-human`. One-project-per-machine and the
+`/stop` path were verified. See [`docs/pilot-report.md`](docs/pilot-report.md)
+for the full pilot log and the hardening recommendations it surfaced (M13).
+
 The remaining loop commands report "not implemented" until
 later milestones fill them in. See
 [`todo/README.md`](todo/README.md) for the milestone plan.

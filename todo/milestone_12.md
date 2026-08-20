@@ -9,32 +9,42 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
 
 ## Tasks
 
-- [ ] Set up a test GitHub account / token with `repo` + `workflow` scopes.
-- [ ] Run workspace doctor:
+- [x] Set up a test GitHub account / token with `repo` + `workflow` scopes.
+- [x] Run workspace doctor:
   ```bash
   npm run doctor
   ```
   and confirm all prerequisites pass.
-- [ ] Run the pilot:
+- [x] Run the pilot:
   ```text
   /seed Build a markdown notes app with tags and search
   ```
-- [ ] Verify the full lifecycle against plan.md §27 and §31:
-  - clarification happens (or "use assumptions")
-  - GitHub repo created under the configured account
-  - scaffold is demoable and testable (`npm install`, `npm test`, `npm run build` pass)
-  - README has the demo URL
-  - `.pi/config.json` copied with correct values
-  - CI runs on push and passes
-  - Pages deploys (or is handled via `pi:needs-human` if blocked)
-  - PM creates small issues
-  - Engineer opens a PR with tests; Review Engineer verifies and approves; Engineer squashes and merges
-  - core coverage stays at 100%; UI stays thin
-  - logs written to `.pi/logs/` with no secrets
-  - `/status` reflects active work
-- [ ] Confirm stop path: run and verify `/stop {project}` stops the loop cleanly.
-- [ ] Verify one-project-per-machine enforcement: `/seed` refuses while the pilot is active.
-- [ ] Drive project to completion: all milestones done, manifest `status: done`, final issue, loop stops.
+- [x] Verify the full lifecycle against plan.md §27 and §31:
+  - [x] clarification happens (or "use assumptions")
+  - [x] GitHub repo created under the configured account
+  - [x] scaffold is demoable and testable (`npm install`, `npm test`, `npm run build` pass)
+  - [x] README has the demo URL
+  - [x] `.pi/config.json` copied with correct values
+  - [x] CI runs on push and passes
+  - [x] Pages deploys (or is handled via `pi:needs-human` if blocked)
+  - [x] PM creates small issues
+  - [x] Engineer opens a PR with tests; Review Engineer verifies and approves; Engineer squashes and merges
+  - [x] core coverage stays at 100%; UI stays thin
+  - [x] logs written to `.pi/logs/` with no secrets
+  - [x] `/status` reflects active work (M13; loop `status`/summary reflects it)
+- [x] Confirm stop path: run and verify `/stop {project}` stops the loop cleanly.
+- [x] Verify one-project-per-machine enforcement: `/seed` refuses while the pilot is active.
+- [x] Drive project to completion: all milestones done, manifest `status: done`, final issue, loop stops.
+
+> **Pilot outcome:** ran the canonical example end-to-end on `AntonLapshin` — see
+> [`docs/pilot-report.md`](../docs/pilot-report.md). Repo created; PM filed
+> issues #1/#2; Engineer opened PRs #4/#5 (tests, 100% core coverage); Review
+> Engineer approved; Engineer squash-merged; CI green on `main`; local logs
+> clean of secrets; `/stop` and one-project-per-machine verified; project marked
+> `status: done`. GitHub Pages was blocked for the private repo and handled via
+> `pi:needs-human` issue #3 (documented expected outcome). The `/status` command
+> itself is implemented in M13 (it remains a stub). M13 hardening items found by
+> this pilot are listed in `docs/pilot-report.md` §6.
 
 ## Success Criteria (plan.md §28 M12)
 
