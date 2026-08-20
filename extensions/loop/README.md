@@ -12,6 +12,7 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 | `dispatcher.js`    | Decides the next persona per the §15 dispatch order. |
 | `pm-context.js`    | PM context packer (M7, plan.md §21.1): reads manifest/project-state/changelog, open issue + PR summaries, recent merged PRs, and policy excerpts for the PM persona. |
 | `engineer-context.js` | Engineer context packer (M8, plan.md §21.1): resolves the target work item (implement a `pi:ready` issue / address review comments / merge an approved PR), includes the issue body + comments, PR review comments, project structure, test commands, recent merged PRs, and policy excerpts for the Engineer persona. |
+| `review-context.js` | Review Engineer context packer (M9, plan.md §21.1): resolves the target PR (a `pi:review-needed` / review-requested PR), includes the PR body + diff summary, linked issue + acceptance criteria, review settings (`reviewerCanPushTestCommits`), verification commands, review rules, and policy excerpts for the Review Engineer persona. |
 | `persona-runner.js`| Launches a fresh Pi persona session: unique run ID, no session persistence, context passed as a file, output captured in the run dir (plan.md §14 / §29.3). |
 | `constants.js`     | Shared paths (`.pi/state/loop.lock`, `.pi/state/stop`, `.pi/logs/runs.jsonl`, `.pi/runs/`) and decision/label constants. |
 | `index.ts`         | Registers the `/loop` and `/stop` slash commands. |

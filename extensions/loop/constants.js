@@ -137,3 +137,67 @@ export const MILESTONE_MARKER_RE = /<!--\s*pi:milestone\s+(M\d+)\s*-->/;
 export function milestoneLabel(id) {
 	return MILESTONE_LABEL_PREFIX + String(id || "").toLowerCase();
 }
+
+/**
+ * Review comment prefix (plan.md §18.3). Every Review Engineer comment must
+ * start with this and carry `type=`, `severity=`, and `location=` attributes:
+ *   `PI-REVIEW type=missing-tests severity=blocking location=src/core/x.ts:12`
+ */
+export const REVIEW_COMMENT_RE = /PI-REVIEW\s+type=([^\s]+)\s+severity=(blocking|warning|info)\s+location=([^\s]+)/;
+
+/**
+ * Allowed review reasons (plan.md §18.1). The Review Engineer may raise a
+ * comment only for one of these physically verifiable reasons.
+ */
+export const REVIEW_REASONS = {
+	FAILING_TESTS: "failing-tests",
+	MISSING_TESTS: "missing-tests",
+	ACCEPTANCE_COVERAGE: "acceptance-coverage",
+	BROKEN_BUILD: "broken-build",
+	LINT_FAILURE: "lint-failure",
+	COVERAGE_FAILURE: "coverage-failure",
+	UI_BUSINESS_LOGIC: "ui-business-logic",
+	UNSAFE_DEPENDENCY: "unsafe-dependency",
+	SECRETS: "secrets",
+	INCORRECT_CORE: "incorrect-core",
+};
+
+/**
+ * Review comment severities (plan.md §18.3).
+ */
+export const REVIEW_SEVERITIES = {
+	BLOCKING: "blocking",
+	WARNING: "warning",
+	INFO: "info",
+};
+
+/**
+ * Verification commands the Review Engineer runs per PR (plan.md §18 / §19).
+ */
+export const REVIEW_COMMANDS = [
+	"npm ci",
+	"npm run lint",
+	"npm test",
+	"npm run test:coverage",
+	"npm run build",
+];
+
+/**
+ * Missing-test detection cases (plan.md §18.4) the Review Engineer checks for
+ * every new/changed core function.
+ */
+export const MISSING_TEST_CASES = [
+	"empty / invalid input",
+	"duplicates",
+	"case sensitivity",
+	"boundaries (min/max/off-by-one)",
+	"error / async paths",
+	"malformed data",
+	"missing fields",
+];
+
+/**
+ * Default for `config.review.reviewerCanPushTestCommits` (plan.md §18.5).
+ * The Review Engineer must NOT push code to PRs unless this is explicitly true.
+ */
+export const REVIEWER_CAN_PUSH_TEST_COMMITS_DEFAULT = false;

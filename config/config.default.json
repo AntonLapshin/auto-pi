@@ -41,6 +41,9 @@
     "coreCoveragePercent": 100,
     "featureBranches": true
   },
+  "review": {
+    "reviewerCanPushTestCommits": false
+  },
   "pages": {
     "enabled": true,
     "deployBranch": "gh-pages"

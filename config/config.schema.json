@@ -75,6 +75,18 @@
         "featureBranches": { "type": "boolean", "default": true }
       }
     },
+    "review": {
+      "type": "object",
+      "default": {},
+      "description": "Review Engineer settings (M9, plan.md §18.5).",
+      "properties": {
+        "reviewerCanPushTestCommits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the Review Engineer may push test commits to PR branches. Default false — reviewers request changes / open follow-up issues instead (role separation)."
+        }
+      }
+    },
     "pages": {
       "type": "object",
       "default": {},
