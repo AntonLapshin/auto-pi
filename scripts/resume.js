@@ -71,11 +71,15 @@ async function main() {
 		process.exit(0);
 	}
 
-	// Start the loop detached under nohup.
+	// Start the loop detached under nohup. `setsid` puts the loop in its own
+	// session/process group with no controlling terminal so spawned persona `pi`
+	// sessions never inherit the interactive tty (which hangs them in batch
+	// mode); stdin is redirected from /dev/null so the loop never reads the
+	// shared tty.
 	const { execa } = await import("execa");
 	const script = join(process.cwd(), "scripts", "loop.js");
 	const logFile = join(workspace, ".pi", "logs", "loop.out");
-	const shell = await execa("bash", ["-c", `nohup node "${script}" > "${logFile}" 2>&1 & echo $!`], {
+	const shell = await execa("bash", ["-c", `setsid nohup node "${script}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
 		cwd: workspace,
 		reject: false,
 	});

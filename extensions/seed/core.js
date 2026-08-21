@@ -599,8 +599,12 @@ export async function startLoopDetached(workspace) {
 		// though nohup does not inherit the interactive session's PI_* env vars.
 		const { providerEnv } = await import("../loop/provider-env.js");
 		const env = providerEnv();
-		// Redirect output to the loop log and print the background PID.
-		const shell = await execa("bash", ["-c", `nohup node "${loopScript}" > "${logFile}" 2>&1 & echo $!`], {
+		// Redirect output to the loop log and print the background PID. `setsid`
+		// places the loop in its own session/process group with NO controlling
+		// terminal, so the loop (and every persona it spawns) never inherits the
+		// interactive tty — otherwise a spawned `pi` persona can grab the tty for
+		// its TUI and hang forever instead of completing the batch run.
+		const shell = await execa("bash", ["-c", `setsid nohup node "${loopScript}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
 			cwd: workspace,
 			env,
 			reject: false,

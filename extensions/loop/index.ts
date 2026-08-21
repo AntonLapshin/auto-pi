@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 import {
 	runLoopCycle,
 	readActiveProject,
@@ -57,15 +58,19 @@ export default function (pi: ExtensionAPI) {
 			const { execa } = await import("execa");
 			try {
 				// Launch the fallback CLI under nohup, capturing output to the loop log.
+				// `setsid` puts the loop in its own session/process group with no
+				// controlling terminal so spawned persona `pi` sessions never inherit the
+				// interactive tty (which otherwise hangs them in batch mode). stdin is
+				// redirected from /dev/null so the loop never reads the shared tty.
 				const script = new URL("../../scripts/loop.js", import.meta.url).pathname;
 				// Propagate the resolved provider/model into the detached loop process
 				// (nohup does not inherit the interactive session's PI_* env vars).
 				const { providerEnv } = await import("./provider-env.js");
-				await execa("nohup", ["node", script], {
+				const logFile = join(workspace, ".pi", "logs", "loop.out");
+				await execa("bash", ["-c", `setsid nohup node "${script}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
 					cwd: workspace,
-					detached: true,
-					stdio: "ignore",
 					env: providerEnv(),
+					reject: false,
 				}).catch(() => {});
 				notify(
 					`Loop started for ${activeRes.active.repo || workspace} (detached). Check .pi/logs/loop.out.`,

@@ -104,7 +104,18 @@ const SECRET_PATTERNS = [
  */
 export function redactSecrets(text) {
 	if (typeof text !== "string" || text.length === 0) return text;
-	let out = text;
+	// Protect auto-pi run IDs (e.g. `pm-20260820-181242-251ee072`) from being
+	// flagged as high-entropy secrets: the run ID is the lookup key for the
+	// persona session (`pi --name <runId>`) and must stay visible in logs for
+	// observability. We swap them for a placeholder before running the pattern
+	// matcher, then restore them afterwards.
+	const runIdPattern = /(?<![\w-])([a-z]+-\d{8}-\d{6}-[0-9a-f]{8})(?![\w-])/g;
+	const runIds = [];
+	const shielded = text.replace(runIdPattern, (m) => {
+		runIds.push(m);
+		return `__AUTOPI_RUNID_${runIds.length}__`;
+	});
+	let out = shielded;
 	for (const re of SECRET_PATTERNS) {
 		out = out.replace(re, (match, ...groups) => {
 			// For the assignment pattern, keep the key name but redact the value.
@@ -116,6 +127,8 @@ export function redactSecrets(text) {
 			return "[REDACTED]";
 		});
 	}
+	// Restore the protected run IDs.
+	out = out.replace(/__AUTOPI_RUNID_(\d+)__/g, (_, n) => runIds[Number(n) - 1] || "");
 	return out;
 }
 
@@ -201,6 +214,71 @@ export async function appendRunRecord(workspace, record, config = {}) {
 	const full = { version: RUN_LOG_VERSION, ...record };
 	await appendJsonl(workspace, RUNS_LOG_REL, full, config);
 	return JSON.stringify(full);
+}
+
+/**
+ * Log an observable activity point for a persona (or the loop itself).
+ *
+ * This is the observability backbone: it guarantees at least one durable,
+ * greppable record *per persona run* — including a `started` marker written
+ * the moment a persona is dispatched (before the (possibly long-running)
+ * `pi` session actually finishes). That way `runs.jsonl` and `latest.log`
+ * always show progress even while a persona is still running, and `summary.md`
+ * reflects the latest per-persona stats.
+ *
+ * Writes:
+ *   - an appended entry to `runs.jsonl` (status/action = `p.status`/`p.action`,
+ *     e.g. `started` / `running`)
+ *   - the single-line `latest.log` activity marker (tail-friendly)
+ *   - the human `summary.md` refresh (so per-persona stats are always current)
+ *
+ * Best-effort: never throws (must never break the loop).
+ *
+ * @param {object} p
+ * @param {string} p.workspace
+ * @param {object} [p.config]
+ * @param {string} [p.runId]
+ * @param {string} p.persona
+ * @param {string} [p.status]   e.g. "started" | "running" | "ok" | "error" | "waiting" | "stopped"
+ * @param {string} [p.action]   e.g. "started" | "ran" | "error" | "waiting" | "stopped"
+ * @param {string} [p.reason]
+ * @param {object} [p.state]
+ * @param {boolean} [p.refreshSummary=true] when true, rewrite summary.md with the new record
+ * @returns {Promise<object|null>}
+ */
+export async function logPersonaActivity(p = {}) {
+	try {
+		const { workspace, config = {}, state } = p;
+		if (!workspace) return null;
+		const now = new Date().toISOString();
+		const record = buildRunRecord({
+			runId: p.runId || "",
+			startedAt: p.startedAt || now,
+			finishedAt: p.finishedAt || (p.status === "started" || p.status === "running" ? "" : now),
+			persona: p.persona || "",
+			trigger: p.trigger || "loop",
+			projectName: config?.project?.name || "",
+			repo: [config?.project?.owner, config?.project?.repo].filter(Boolean).join("/"),
+			status: p.status || "running",
+			action: p.action || "running",
+			reason: p.reason || "",
+		});
+		await appendRunRecord(workspace, record, config);
+		// Refresh the human summary first (it rewrites latest.log with its own
+		// line), then write the activity marker LAST so `latest.log` always ends
+		// with the most recent per-persona activity line.
+		if (p.refreshSummary !== false) {
+			await writeSummary({ workspace, config, state, lastRun: record }).catch(() => {});
+		}
+		await writeLatestLog(
+			workspace,
+			`[${now}] persona=${record.persona || "loop"} status=${record.status} run=${record.runId}${record.reason ? ` reason=${record.reason}` : ""}`,
+		);
+		return record;
+	} catch {
+		// logging is best-effort and must never break the loop
+		return null;
+	}
 }
 
 /**

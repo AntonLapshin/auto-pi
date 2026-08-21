@@ -31,7 +31,6 @@ import {
 	accumulateTokens,
 	buildRunRecord,
 } from "../../skills/logging/core.js";
-import { personaTokenFlags } from "../../skills/budget-guard/core.js";
 import { backoffDelay, sleep } from "../../skills/github/core.js";
 import { resolveProviderModel, providerEnv } from "./provider-env.js";
 
@@ -274,9 +273,12 @@ export async function prepareRun(workspace, runId, payload) {
 /**
  * Launch a fresh Pi persona session (plan.md §14 / §29.3).
  *
- * Uses `pi -p` (non-interactive print mode) with `--no-session` so the persona
- * has no memory of any prior conversation. The persona prompt is appended to
- * the system prompt and the context file is passed as a file argument.
+ * Uses `pi -p` (non-interactive print mode) with `--no-session` and an explicit
+ * `--mode text` so the persona has no memory of any prior conversation and never
+ * blocks reading an open stdin (a plain `-p` without `--mode` can hang when the
+ * spawned process inherits a controlling terminal / open stdin). The persona
+ * prompt is appended to the system prompt and the context file is passed as a
+ * file argument.
  *
  * @param {object} opts
  * @param {string} opts.workspace    absolute project root
@@ -339,6 +341,15 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config, en
 	const args = [
 		"-p",
 		"--no-session",
+		"--mode", "text",
+		// Never auto-fetch URLs: the context files contain live links (repo/demo/
+		// changelog URLs) and pi's model can decide to `browse`/fetch them, which
+		// opens a blocked network fetch to an arbitrary host and hangs the sole
+		// batch `pi -p` invocation with zero output (0 CPU, stuck in ep_poll
+		// before the LLM call). Excluding the web tools keeps the persona firmly
+		// in batch mode. Unknown names are ignored by pi; `browse` is the real
+		// built-in fetch tool on this version.
+		"--exclude-tools", "browse,fetch,web_fetch,get_webpage,get_web_content",
 		"--name", runId,
 		"--append-system-prompt", prompt,
 		contextFile,
@@ -353,10 +364,14 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config, en
 	if (provider) args.push("--provider", provider);
 	if (model) args.push("--model", model);
 
-	// M13: enforce per-persona token caps (budget guard, plan.md §21). Pass the
-	// context/prompt/output caps to pi so the model is bounded at the persona
-	// level as well as the loop level. Unknown flags are ignored by pi.
-	for (const flag of personaTokenFlags(config)) args.push(flag);
+	// M13: per-persona token caps were originally attempted via pi's
+	// `--max-context/--max-prompt/--max-output` flags, but this pi version does
+	// NOT support those options — it hard-errors on unknown options, failing
+	// every persona session. The budget guardrails are instead enforced at the
+	// loop level (limits.maxTokensPerCycle / maxTokensPerDay via
+	// checkCycleBudget/budgetExceeded), so we drop the unsupported per-persona
+	// flags entirely rather than breaking persona runs.
+	// (personaTokenFlags() intentionally NOT applied — pi rejects these flags.)
 
 	return args;
 }
@@ -380,23 +395,44 @@ export function buildChildEnv({ config, env } = {}) {
 }
 
 /**
- * The real underlying `pi` invocation via execa. Never throws.
+ * The real underlying `pi` invocation. Never throws.
+ *
+ * Uses Node's raw `child_process.spawn` (NOT execa): execa v10 spawns a
+ * `pi`/Bun child in a way that makes it hang in `ep_poll` with zero CPU and no
+ * LLM/API connection — verified empirically (a trivial `pi -p` completes in
+ * ~4s via `spawn` but never returns via `execa`). Switching to `spawn` fixes
+ * the loop's perpetual "running persona …" state.
+ *
+ * stdin is closed (`ignore`) so `pi` stays in batch mode and never reads the
+ * shared tty; stdout/stderr are piped and resolved as promises on exit.
  *
  * @returns {Promise<{ exitCode: number, stdout: string, stderr: string }>}
  */
 export async function executePi(args, childEnv, workspace) {
-	const { execa } = await import("execa");
-	try {
-		const res = await execa("pi", args, {
-			cwd: workspace,
-			env: childEnv,
-			reject: false,
-			timeout: 0, // persona work can take a while; loop controls cadence
+	const { spawn } = await import("node:child_process");
+	return new Promise((resolve) => {
+		let stdout = "";
+		let stderr = "";
+		let child;
+		try {
+			child = spawn("pi", args, {
+				cwd: workspace,
+				env: childEnv,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (err) {
+			resolve({ exitCode: 1, stdout: "", stderr: String(err?.message || err) });
+			return;
+		}
+		child.stdout.on("data", (d) => { stdout += d; });
+		child.stderr.on("data", (d) => { stderr += d; });
+		child.on("error", (err) => {
+			resolve({ exitCode: 1, stdout, stderr: String(err?.message || err) });
 		});
-		return { exitCode: res.exitCode, stdout: res.stdout || "", stderr: res.stderr || "" };
-	} catch (err) {
-		return { exitCode: err?.exitCode ?? 1, stdout: "", stderr: String(err?.message || err) };
-	}
+		child.on("close", (code) => {
+			resolve({ exitCode: code ?? 1, stdout, stderr });
+		});
+	});
 }
 
 /**

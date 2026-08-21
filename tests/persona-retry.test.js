@@ -80,7 +80,7 @@ test("personaRetrySettings allows maxRetries=0 (disable retry)", () => {
 
 // --- buildPersonaArgs ---
 
-test("buildPersonaArgs includes persona flags, model/provider, and token caps", async () => {
+test("buildPersonaArgs includes persona flags and model/provider, and does NOT pass unsupported token-cap flags", async () => {
 	const args = buildPersonaArgs({
 		persona: "engineer",
 		runId: "engineer-1",
@@ -98,10 +98,14 @@ test("buildPersonaArgs includes persona flags, model/provider, and token caps", 
 	assert.ok(args.includes("openai"));
 	assert.ok(args.includes("--model"));
 	assert.ok(args.includes("gpt-4o"));
-	assert.ok(args.includes("--max-prompt"));
-	assert.ok(args.includes("1000"));
-	assert.ok(args.includes("--max-output"));
-	assert.ok(args.includes("500"));
+	// pi does NOT support these options and hard-errors on unknown flags, so the
+	// per-persona token-cap flags must NOT be passed (guardrails stay loop-level).
+	assert.ok(!args.includes("--max-prompt"));
+	assert.ok(!args.includes("--max-output"));
+	assert.ok(!args.includes("--max-context"));
+	// The boot URL-hang guard: web/browse-fetch tools are excluded so the model
+	// never auto-fetches URLs in the context (which hangs the batch run).
+	assert.ok(args.includes("--exclude-tools"));
 	// The persona prompt is appended to the system prompt.
 	assert.ok(args.includes("--append-system-prompt"));
 	assert.ok(args.includes("/tmp/ctx.md"));

@@ -52,6 +52,7 @@ import {
 	buildRunRecord,
 	readErrors,
 	lastRun,
+	logPersonaActivity,
 } from "../../skills/logging/core.js";
 import { notifyEvent, setLogger } from "../../skills/telegram-notify/core.js";
 /** Default per-machine active-project record (matches seed constants). */
@@ -475,6 +476,21 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 						});
 
 		log(`running persona "${decision.persona}" (run ${runId})...`);
+		// Observability: write a durable "started" activity record (runs.jsonl +
+		// latest.log + summary.md) the moment a persona is dispatched, so there is
+		// always at least one logged activity per persona even if the run is
+		// long-running, hangs, or is later retried. Best-effort; never breaks the
+		// loop.
+		await logPersonaActivity({
+			workspace,
+			config,
+			state,
+			runId,
+			persona: decision.persona,
+			status: "started",
+			action: "started",
+			reason: `dispatch ${decision.decision}: ${decision.reason}`,
+		}).catch(() => {});
 		const result = await runPersonaWithRetry({
 			workspace,
 			persona: decision.persona,
