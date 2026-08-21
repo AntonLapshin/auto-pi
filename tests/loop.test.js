@@ -276,6 +276,50 @@ test("dispatch: no PRs and no issues → PM (finalize)", () => {
 	assert.equal(d.persona, PERSONAS.PM);
 });
 
+test("dispatch: done + no PRs and no issues → WAIT (zero-cost poll)", () => {
+	// The project is marked done (completed.json) and there is no open work — the
+	// loop must NOT spend an LLM call re-spawning PM to finalize. It WAITs at
+	// zero cost and only resumes when new work appears.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		completed: true,
+		state: state([], []),
+	});
+	assert.equal(d.decision, DECISION.WAIT);
+	assert.equal(d.persona, undefined);
+	assert.match(d.reason, /done/);
+});
+
+test("dispatch: done but a new open issue appears → PM plans it (resume work)", () => {
+	// A new issue is manually added while the project is done. The loop resumes:
+	// the unplanned issue routes to PM (option A) so it can be split/planned into
+	// pi:ready issues the Engineer picks up next — not a zero-cost wait.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		completed: true,
+		state: state([issue(1, [])], []),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+});
+
+test("dispatch: done but a ready issue appears → Engineer (resume work)", () => {
+	// A manually-added issue already carrying pi:ready goes straight to Engineer.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		completed: true,
+		state: state([issue(1, ["pi:ready"])], []),
+	});
+	assert.equal(d.decision, DECISION.ENGINEER);
+	assert.equal(d.persona, PERSONAS.ENGINEER);
+});
+
 // --- state scanner ---
 
 function fakeGh(issues, prs) {

@@ -20,7 +20,10 @@
  * next task; PM spawns only after all PRs are merged and no issues remain:
  *   5. open ready issues                       → Engineer
  *   6. open issues remain (unplanned/PM notes) → PM
- *   7. no open PRs and no open issues          → PM (finalize)
+ *   7. no open PRs and no open issues          → PM (finalize) — unless the
+ *      project is already marked done (completed.json), in which case → WAIT
+ *      so the loop polls GitHub at zero cost and only resumes work when a new
+ *      issue/PR appears (deterministic, no LLM call when nothing to do).
  *
  * The middle gate guarantees only one PR is ever in flight: a fresh Engineer
  * implementation is never dispatched while a PR is open, so the flow is
@@ -74,10 +77,15 @@ function isApproved(p) {
  * @param {boolean} inputs.needsHuman       initiation/state requires a human
  * @param {object} inputs.state             scanned GitHub state ({ issues, prs, ... })
  * @param {object} [inputs.config]          parsed .pi/config.json (used for hints)
+ * @param {boolean} [inputs.completed]       project already marked done
+ *                                          (completed.json present) — when true
+ *                                          and there is no work, the loop WAITs
+ *                                          (zero-cost poll) instead of spawning
+ *                                          PM to finalize again.
  * @returns {{ decision: string, persona?: string, reason: string }}
  */
 export function dispatch(inputs) {
-	const { stopped, budget, needsHuman, state, config } = inputs;
+	const { stopped, budget, needsHuman, state, config, completed } = inputs;
 	const budgetInfo = budget || { exceeded: false, reason: "" };
 	const issues = state?.issues || [];
 	const prs = state?.prs || [];
@@ -218,6 +226,14 @@ export function dispatch(inputs) {
 		};
 	}
 
-	// 7. No open PRs and no open issues → PM (finalize / plan the next slice).
+	// 7. No open PRs and no open issues → PM (finalize / plan the next slice) —
+	// unless the project is already marked done. When done, there is nothing for
+	// the PM to finalize, so the loop WAITs at zero cost: it keeps polling GitHub
+	// and only resumes work (PM plans, then Engineer implements) once a new
+	// issue/PR appears. This is the deterministic gate that keeps the loop free
+	// while the project is complete.
+	if (completed) {
+		return { decision: DECISION.WAIT, reason: "project done and no open issues or PRs; waiting for new work" };
+	}
 	return { decision: DECISION.PM, persona: PERSONAS.PM, reason: "no open issues or PRs; PM to finalize" };
 }

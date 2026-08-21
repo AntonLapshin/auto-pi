@@ -731,6 +731,10 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			needsHuman: await needsHuman(workspace, state),
 			state,
 			config,
+			// The project is considered "done" when the PM has written the
+			// completion marker. When done and there is no open work, the loop
+			// WAITs at zero cost rather than re-spawning the PM to finalize.
+			completed: Boolean(await readCompletedState(workspace)),
 		});
 		log(`dispatch: ${decision.decision} (${decision.reason})`);
 		await appendEvent(workspace, {
