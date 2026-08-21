@@ -147,6 +147,75 @@ test("dispatch order: changes-requested beats ready issue", () => {
 	assert.match(d.reason, /changes requested/);
 });
 
+test("one-PR-at-a-time: ready issues + open PR → Review, not a new Engineer", () => {
+	// Even with remaining pi:ready issues, an open PR must block new
+	// implementations so only one PR is ever in flight at a time.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(1, ["pi:ready"]), issue(2, ["pi:ready"])], [pr(10, ["pi:review-needed"], "none")]),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+});
+
+test("dispatch: freshly-opened PR with pi:review-needed → Review Engineer", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([], [pr(5, ["pi:review-needed"], "none")]),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+});
+
+test("dispatch: open PR in an unknown state → Review (never new impl while PR open)", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(1, ["pi:ready"])], [pr(7, [], "none")]),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+	assert.notEqual(d.reason, "an open issue is ready to implement");
+});
+
+test("dispatch: approved but not merge-ready PR → Engineer/Merge (resolve conflict)", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(1, ["pi:ready"])], [pr(8, [], "approved", false)]), // approved, not mergeable
+	});
+	assert.equal(d.decision, DECISION.ENGINEER_MERGE);
+	assert.equal(d.persona, PERSONAS.ENGINEER);
+});
+
+test("dispatch: after all PRs merged, ready issue → Engineer (next task)", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(2, ["pi:ready"])], []), // no open PRs
+	});
+	assert.equal(d.decision, DECISION.ENGINEER);
+	assert.equal(d.persona, PERSONAS.ENGINEER);
+});
+
+test("dispatch: no PRs and no issues → PM (finalize)", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([], []),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+});
+
 // --- state scanner ---
 
 function fakeGh(issues, prs) {

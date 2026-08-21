@@ -244,10 +244,13 @@ export function resolveTarget(state) {
 		return { kind: "review", number: changesRequested.number, labels: changesRequested.labels };
 	}
 
-	// 2. Merge an approved + merge-ready PR.
-	const approvedMerge = prs.find(
-		(p) => p.review === "approved" && (p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY)),
-	);
+	// 2. Merge an approved PR. Prefer one that is merge-ready; otherwise fall
+	//    back to any approved PR so the Engineer resolves a conflict/block and
+	//    merges it (rather than bouncing it back to review).
+	const approvedMerge =
+		prs.find(
+			(p) => p.review === "approved" && (p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY)),
+		) || prs.find((p) => p.review === "approved");
 	if (approvedMerge) {
 		return { kind: "merge", number: approvedMerge.number, labels: approvedMerge.labels };
 	}

@@ -256,6 +256,10 @@ export async function readPolicyExcerpts(workspace, names = []) {
  * `reviewDecision === review_requested`, or is otherwise awaiting review but not
  * yet approved or changes-requested. Returns the first such PR, or null.
  *
+ * Falls back to any open PR that has not yet been finalized (not approved +
+ * merge-ready and not changes-requested) so the single in-flight PR is always
+ * reviewable — matching the dispatcher's one-PR-at-a-time gate.
+ *
  * @param {object} state scanned GitHub state
  * @returns {{ number: number, labels: string[] }|null}
  */
@@ -269,6 +273,12 @@ export function resolveReviewTarget(state) {
 			p.review === "review_requested",
 	);
 	if (candidate) return { number: candidate.number, labels: candidate.labels };
+	// Fallback: any open PR that has not yet reached a review decision (not
+	// approved and not changes-requested) is still awaiting review → review it.
+	// A pending/None review means the PR has no decision yet and belongs to
+	// Review, not the Engineer.
+	const pending = prs.find((p) => p.review !== "approved" && p.review !== "changes_requested");
+	if (pending) return { number: pending.number, labels: pending.labels };
 	return null;
 }
 

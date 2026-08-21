@@ -127,6 +127,15 @@ test("resolveTarget prioritises approved merge-ready PR", () => {
 	assert.equal(t.number, 10);
 });
 
+test("resolveTarget targets an approved-but-not-mergeable PR for merge/conflict", () => {
+	const t = resolveTarget(state(
+		[issue(1, ["pi:ready"])],
+		[pr(11, [], "approved", false)], // approved but conflicted
+	));
+	assert.equal(t.kind, "merge");
+	assert.equal(t.number, 11);
+});
+
 test("resolveTarget skips ready issues already in flight (open PR)", () => {
 	const t = resolveTarget(state(
 		[issue(1, ["pi:ready"]), issue(2, ["pi:ready"])],
