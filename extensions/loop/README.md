@@ -21,6 +21,11 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 
 - `.pi/state/loop.lock` — PID + lock file; refuses a second loop for the same project (§13.2).
 - `.pi/state/stop` — stop file checked every cycle (§13.3).
+- `.pi/state/completed.json` — completion marker the PM writes when the project is
+done (`{ "status": "done", ... }`). While present, the dispatcher WAITs at zero
+cost when there is no open work instead of spawning PM to finalize/create a new
+batch, and the loop keeps polling GitHub so a later manually-added issue/PR is
+picked up automatically.
 - `.pi/logs/loop.out` — nohup stdout/stderr capture.
 - `.pi/logs/runs.jsonl` — one JSON line per persona invocation (M10 fills in token/cost).
 - `.pi/logs/errors.jsonl` — one JSON line per logged error / failed run (M10).

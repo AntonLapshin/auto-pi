@@ -511,6 +511,32 @@ test("runLoopCycle stops when the stop file exists (no persona launched)", async
 	assert.equal(result.decision, DECISION.STOP);
 });
 
+test("runLoopCycle WAITs (does not stop) when project is done and no open work", async () => {
+	// Project done: completed.json is present, no open issues/PRs. The loop must
+	// NOT stop and must NOT spawn PM to finalize/create a new batch — it WAITs at
+	// zero cost and keeps polling so a later manually-added issue is picked up.
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-done-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await writeFile(join(dir, ".pi", "config.json"), JSON.stringify({ project: { owner: "o", repo: "r", name: "R" } }), "utf8");
+	await writeFile(join(dir, ".pi", "state", "completed.json"), JSON.stringify({ status: "done" }), "utf8");
+
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(cpFile, JSON.stringify({ workspace: dir, repo: "o/r" }), "utf8");
+
+	const result = await runLoopCycle(dir, { log: () => {} }, {
+		gh: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+		currentProjectFile: cpFile,
+	});
+	// Not stopped, not running a persona — the loop waits and stays alive so the
+	// user can later add an issue and have the loop pick it up.
+	assert.equal(result.action, "waiting");
+	assert.equal(result.decision, DECISION.WAIT);
+	assert.match(result.reason, /done/);
+	// The stop file must NOT have been written — the loop keeps running.
+	assert.equal(await isStopped(dir), false);
+});
+
 test("runLoopCycle does not stop on budget when stopOnBudgetExceeded=false (M13)", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-budget-off-"));
 	await mkdir(join(dir, ".pi", "state"), { recursive: true });

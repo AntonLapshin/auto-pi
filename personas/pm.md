@@ -109,23 +109,27 @@ When done, in order:
    git commit -m "chore: mark project done"
    git push
    ```
-2. **Create the final "Project completed" issue**:
-   ```bash
-   gh issue create --repo {owner}/{repo} --title "Project completed" \
-     --body "All milestones complete. CI, tests, coverage, build, and Pages all pass. See manifest.md."
-   ```
-3. **Write local completion state** so the harness / Telegram can read it. Write a
+2. **Write local completion state** so the harness / Telegram can read it. Write a
    JSON file to `.pi/state/completed.json`:
    ```json
    { "status": "done", "completedAt": "<ISO>", "repo": "{owner}/{repo}", "demoUrl": "<url or null>" }
    ```
    (Create `.pi/state/` if needed. This file is git-ignored.)
-4. **Stop the loop** by writing the stop file `.pi/state/stop`:
-   ```bash
-   mkdir -p .pi/state && date > .pi/state/stop
-   ```
-   The loop checks this file each cycle and will exit cleanly.
-5. Report clearly that the project is complete.
+3. Report clearly that the project is complete.
+
+**Do NOT** create a "Project completed" issue and **do NOT** write the stop file.
+
+- Issues are reserved for upcoming work, never for signalling that the project is
+  done. Creating a completion issue leaves an open issue on the repo, which the
+  loop's dispatcher treats as unplanned work and re-dispatches PM to handle — a
+  spurious extra PM turn. The `manifest.md` `status: done` field (tracked in the
+  repo) and `.pi/state/completed.json` are the completion signals.
+- Do not write `.pi/state/stop`. The loop must keep running. Once you write
+  `completed.json` the dispatcher treats the project as done: it WAITs at zero
+  cost while there is no open work (instead of spawning PM to create a new
+  batch), and it keeps polling GitHub so that if a new issue or PR appears later
+  the loop picks it up automatically. Stopping the loop would require the user to
+  manually restart it to resume work.
 
 > Note: Telegram notification (if enabled) is handled by the harness when it
 > observes the completion state — you only need to write `completed.json`.
