@@ -87,6 +87,13 @@ while another project is active, with a clear message. See
 (`~/.auto-pi/current-project.json`), releasing the one-project-per-machine slot so you can
 immediately run `/loop-seed` again.
 
+If you want to **restart** the loop for the same project rather than finish it, use
+`/loop-restart` (or `npm run restart`). It safely stops the running loop — writing the stop
+file so it exits at its next cycle boundary (any in-flight persona finishes normally, never
+killed) — waits for it to actually exit, removes the stop marker, and starts a fresh loop.
+The active-project record is preserved, so the restarted loop picks up the same project.
+Use `--timeout N` to control how long it waits for the old loop to exit (default 60s).
+
 ## Installation
 
 Install the harness into your Pi environment by pointing `pi install` at this repo
@@ -98,13 +105,14 @@ pi install /path/to/auto-pi
 
 Pi registers the package's extensions from the `pi` block in `package.json`, which
 loads the provider extensions and the harness slash commands. After installation the
-following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-status`,
+following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-restart`, `/loop-status`,
 `/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
 
 | Command       | Purpose                                      | Milestone |
 |---------------|----------------------------------------------|-----------|
 | `/loop-seed`   | Initiate a new project (clarify, create repo, scaffold) | M2 |
 | `/loop-stop`   | Stop the autonomous loop                     | M6        |
+| `/loop-restart`| Safely restart the autonomous loop (stop, then start again) | M6 |
 | `/loop-status` | Active project, loop, and persona status     | M13       |
 | `/loop-logs`   | Show the latest local logs                   | M13       |
 | `/loop-resume` | Resume a stopped/paused project's loop       | M13       |
@@ -117,7 +125,7 @@ non-interactive use (see [`scripts/`](scripts)).
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
 > (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`;
-> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`;
+> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`/`/loop-restart`;
 > `extensions/doctor` for `/loop-doctor`) — the `pi` block in `package.json` only declares resource
 > directories, matching the existing repo convention.
 

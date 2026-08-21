@@ -42,6 +42,7 @@ import {
 	LOOP_LOCK_REL,
 	STOP_FILE_REL,
 	LOOP_LOG_REL,
+	LOGS_DIR_REL,
 	RUNS_LEDGER_REL,
 	LOCK_VERSION,
 } from "./constants.js";
@@ -209,6 +210,152 @@ export async function clearActiveProject(currentProjectFile = CURRENT_PROJECT_FI
 	} catch (err) {
 		return { ok: false, message: `Could not clear active-project record ${currentProjectFile}: ${err?.message || err}` };
 	}
+}
+
+/**
+ * Remove the stop file so the loop stops exiting immediately (plan.md §13.3).
+ * Used by `/loop-restart` and `/loop-resume` when re-arming a fresh loop after
+ * the marker was written to trigger a clean shutdown.
+ *
+ * @param {string} workspace
+ * @returns {Promise<boolean>} true when the stop file is now absent
+ */
+export async function removeStopFile(workspace) {
+	await rm(paths(workspace).stop, { force: true });
+	return !existsSync(paths(workspace).stop);
+}
+
+/**
+ * Poll until a running loop process (identified by the loop-lock PID) has
+ * exited, then confirm the lock is free. The loop is stopped *cooperatively*:
+ * writing the stop file makes it exit at its next cycle boundary, and any
+ * in-flight persona finishes normally — we never SIGKILL it. This is what makes
+ * a restart "safe".
+ *
+ * @param {string} workspace
+ * @param {number} [timeoutMs] total time to wait (default 60s)
+ * @param {number} [intervalMs] poll interval (default 1500ms)
+ * @returns {Promise<{ ok: boolean, pid: number|null, timedOut: boolean }>}
+ */
+export async function waitForLoopExit(workspace, timeoutMs = 60_000, intervalMs = 1500) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const lock = await checkLock(workspace);
+		if (!lock.locked) {
+			return { ok: true, pid: lock.pid, timedOut: false };
+		}
+		await sleep(intervalMs);
+	}
+	const lock = await checkLock(workspace);
+	return { ok: !lock.locked, pid: lock.pid, timedOut: lock.locked };
+}
+
+/**
+ * Launch the loop process detached under `setsid nohup`, mirroring the
+ * `/loop-seed` auto-start pattern (extensions/seed/core.js `startLoopDetached`).
+ * The loop script resolves the active project itself, so we only need to give it
+ * the workspace cwd and redirect output to the loop log. `setsid` places the
+ * loop in its own session/process group with no controlling terminal so spawned
+ * persona `pi` sessions never inherit the interactive tty.
+ *
+ * @param {string} workspace absolute project root
+ * @returns {Promise<{ ok: boolean, pid?: number, message?: string }>}
+ */
+export async function startLoopDetached(workspace) {
+	const { mkdir } = await import("node:fs/promises");
+	const loopScript = new URL("../../scripts/loop.js", import.meta.url).pathname;
+	const logFile = join(workspace, LOGS_DIR_REL, "loop.out");
+	try {
+		await mkdir(join(workspace, LOGS_DIR_REL), { recursive: true });
+		// Propagate the resolved provider/model into the detached loop process so
+		// it (and every persona it spawns) defaults to the intended model even
+		// though nohup does not inherit the interactive session's PI_* env vars.
+		const { providerEnv } = await import("./provider-env.js");
+		const env = providerEnv();
+		const { execa } = await import("execa");
+		const shell = await execa("bash", ["-c", `setsid nohup node "${loopScript}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
+			cwd: workspace,
+			env,
+			reject: false,
+		});
+		const pid = parseInt((shell.stdout || "").trim(), 10);
+		return { ok: true, pid: pid || undefined };
+	} catch (err) {
+		return { ok: false, message: err?.message || String(err) };
+	}
+}
+
+/**
+ * Restart the autonomous loop for the active project — the core of the
+ * `/loop-restart` command.
+ *
+ * Safely stops any existing loop, then starts a fresh one:
+ *
+ *   1. Write the stop file so the running loop (if any) exits at its next cycle
+ *      boundary — a persona in flight finishes normally (no SIGKILL).
+ *   2. Wait (poll) for the loop process to actually exit so its lock is released
+ *      and it can't fight the new loop for the lock. Times out after
+ *      `opts.timeoutMs` (default 60s) and aborts if the old loop hasn't exited —
+ *      starting a second loop while the first still runs would fail the lock.
+ *   3. Remove the stop file so the fresh loop doesn't immediately exit.
+ *   4. Start a new loop detached (`setsid nohup`).
+ *
+ * Unlike `/loop-stop`, the active-project record is preserved — the project is
+ * restarted, not finished — so the new loop resumes the same project.
+ *
+ * @param {string} workspace absolute project root
+ * @param {object} [opts] { log?, timeoutMs?, intervalMs?, start? }
+ * @returns {Promise<{ ok: boolean, pid?: number, message: string, wasRunning: boolean, timedOut?: boolean }>}
+ */
+export async function restartLoop(workspace, opts = {}) {
+	const log = opts.log || ((line) => process.stdout.write(`[loop-restart] ${line}\n`));
+	const timeoutMs = Number(opts.timeoutMs) || 60_000;
+	const intervalMs = Number(opts.intervalMs) || 1500;
+	const start = opts.start || startLoopDetached;
+
+	// 1. Request a clean stop.
+	await writeStopFile(workspace);
+	log("stop file written — requesting the running loop to stop safely.");
+
+	// 2. Wait for the running loop (if any) to exit so the new loop can own the lock.
+	const initial = await checkLock(workspace);
+	let wasRunning = Boolean(initial.locked);
+	if (initial.locked) {
+		log(`waiting for loop PID ${initial.pid} to exit (up to ${Math.round(timeoutMs / 1000)}s)...`);
+		const wait = await waitForLoopExit(workspace, timeoutMs, intervalMs);
+		if (!wait.ok) {
+			// Abort rather than risk a double loop. Leave the stop file in place so
+			// the still-running loop exits on its own once the current cycle ends.
+			log(`timed out waiting for loop PID ${wait.pid} to exit — aborting restart.`);
+			return {
+				ok: false,
+				message: `Timed out waiting for the running loop (PID ${wait.pid}) to exit. It may still be running a persona. The loop has been asked to stop and will exit on its own; run /loop-restart again shortly.`,
+				timedOut: true,
+				wasRunning: true,
+				pid: wait.pid,
+			};
+		}
+		log(`loop exited cleanly (PID ${initial.pid}).`);
+	} else if (initial.stale) {
+		log("stale lock found — cleaning up before restart.");
+	}
+
+	// 3. Remove the stop file so the fresh loop runs rather than exiting.
+	await removeStopFile(workspace);
+
+	// 4. Start a new loop detached.
+	const started = await start(workspace);
+	if (!started.ok) {
+		log(`failed to start the loop: ${started.message || "unknown error"}`);
+		return { ok: false, wasRunning, message: `Stopped the old loop but could not start a new one: ${started.message || "unknown error"}` };
+	}
+	log(`loop started (PID ${started.pid || "?"}).`);
+	return {
+		ok: true,
+		pid: started.pid,
+		wasRunning,
+		message: `Loop restarted (${wasRunning ? `stopped PID ${initial.pid} and ` : ""}started PID ${started.pid || "?"}). Check .pi/logs/loop.out.`,
+	};
 }
 
 /**

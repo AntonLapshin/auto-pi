@@ -1,12 +1,14 @@
 /**
- * The auto-pi `/loop` and `/loop-stop` commands (M6).
+ * The auto-pi `/loop`, `/loop-stop`, and `/loop-restart` commands (M6).
  *
  * `/loop` starts the autonomous loop for the active project (or reports that a
  * loop is already running). `/loop-stop` stops it by writing the stop file.
+ * `/loop-restart` safely restarts it: stop the running loop (waiting for it to
+ * exit cleanly), then start it again.
  *
- * Both reuse the shared core in `extensions/loop/orchestrator.js` (also used by
- * the `npm run loop` / `npm run stop` fallback CLIs) so the interactive commands
- * and the CLI behave identically.
+ * All reuse the shared core in `extensions/loop/orchestrator.js` (also used by
+ * the `npm run loop` / `npm run stop` / `npm run restart` fallback CLIs) so the
+ * interactive commands and the CLI behave identically.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -17,6 +19,7 @@ import {
 	checkLock,
 	writeStopFile,
 	clearActiveProject,
+	restartLoop,
 } from "./orchestrator.js";
 
 export default function (pi: ExtensionAPI) {
@@ -105,6 +108,42 @@ export default function (pi: ExtensionAPI) {
 			} else {
 				notify(cleared.message, "warning");
 			}
+		},
+	});
+
+	pi.registerCommand("loop-restart", {
+		description:
+			"Safely restart the autonomous loop for the active project: stop the running loop (let it finish its current cycle), then start it again",
+		handler: async (args, ctx) => {
+			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
+				ctx.ui.notify(text, level);
+
+			const activeRes = await readActiveProject();
+			if (!activeRes.ok) {
+				notify(`${activeRes.error} Use /loop-seed to start a new project.`, "error");
+				return;
+			}
+			const workspace = activeRes.active.workspace;
+
+			// Optional: how long to wait for the running loop to exit cleanly
+			// before aborting (default 60s, or a persona may still be finishing).
+			const arg = String(args ?? "").trim();
+			const timeoutMatch = /--timeout[= ](\d+)/i.exec(arg);
+			const timeoutMs = timeoutMatch ? Number(timeoutMatch[1]) * 1000 : undefined;
+
+			const result = await restartLoop(workspace, {
+				timeoutMs,
+				log: (line: string) => process.stdout.write(`[loop-restart] ${line}\n`),
+			});
+
+			if (result.ok) {
+				notify(result.message, "success");
+			} else if (result.timedOut) {
+				notify(result.message, "warning");
+			} else {
+				notify(result.message, "error");
+			}
+			process.stdout.write(result.message + "\n");
 		},
 	});
 }

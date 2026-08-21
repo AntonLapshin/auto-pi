@@ -7,6 +7,7 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 |---------|---------|--------------|
 | `/loop-seed` | Initiate a new project (clarify, create repo, scaffold, start loop) | `npm run seed` |
 | `/loop-stop` | Stop the autonomous loop | `npm run stop` |
+| `/loop-restart` | Safely restart the autonomous loop | `npm run restart` |
 | `/loop-status` | Show active project, loop, last run, issues/PRs, budget | `npm run status` |
 | `/loop-logs` | Show the latest local logs | `npm run logs` |
 | `/loop-resume` | Resume a stopped/paused project's loop | `npm run resume` |
@@ -43,6 +44,32 @@ npm run stop
 > longer be resumed with `/loop-resume`. If you only want to pause the loop
 > while keeping the project active, stop the loop process directly (kill the
 > PID from `/loop-status`); the active-project record stays intact.
+
+## `/loop-restart [--timeout N]`
+
+Safely restarts the autonomous loop for the **same** active project. Unlike
+`/loop-stop`, the active-project record is **preserved**, so the restarted loop
+resumes the same project.
+
+It restarts safely by:
+
+1. writing the stop file so the running loop (if any) exits at its next cycle
+   boundary — any in-flight persona finishes normally (never SIGKILLed);
+2. waiting (polling) for the loop process to actually exit so its lock is
+   released and it can't fight the new loop for the lock;
+3. removing the stop marker so the fresh loop doesn't immediately exit;
+4. starting a new loop detached (`setsid nohup`, output to `.pi/logs/loop.out`).
+
+If the old loop hasn't exited within the timeout (it may be mid-persona), the
+restart aborts rather than risk a double loop — the loop has been asked to stop
+and will exit on its own; run `/loop-restart` again shortly. Use `--timeout N`
+to wait up to *N* seconds (default 60).
+
+```bash
+/loop-restart
+/loop-restart --timeout 120
+npm run restart
+```
 
 ## `/loop-status`
 

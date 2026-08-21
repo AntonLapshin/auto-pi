@@ -24,6 +24,9 @@ export const STOP_FILE_REL = ".pi/state/stop";
 /** Relative (to workspace) path of the loop nohup log. */
 export const LOOP_LOG_REL = ".pi/logs/loop.out";
 
+/** Relative (to workspace) path of the loop logs directory. */
+export const LOGS_DIR_REL = ".pi/logs";
+
 /** Relative (to workspace) path of the persona-run ledger. */
 export const RUNS_LEDGER_REL = ".pi/logs/runs.jsonl";
 

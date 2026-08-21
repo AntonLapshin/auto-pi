@@ -27,6 +27,9 @@ import {
 	readActiveProject,
 	runLoopCycle,
 	writeStopFile,
+	removeStopFile,
+	waitForLoopExit,
+	restartLoop,
 } from "../extensions/loop/orchestrator.js";
 import { STOP_FILE_REL } from "../extensions/loop/constants.js";
 
@@ -361,6 +364,16 @@ test("writeStopFile creates the stop file and isStopped returns true", async () 
 	assert.equal(await isStopped(dir), true);
 });
 
+test("removeStopFile deletes the stop file", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-stop-"));
+	const stopFile = await writeStopFile(dir);
+	assert.equal(await isStopped(dir), true);
+	const removed = await removeStopFile(dir);
+	assert.equal(removed, true);
+	await assert.rejects(access(stopFile));
+	assert.equal(await isStopped(dir), false);
+});
+
 test("readConfig parses .pi/config.json", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-cfg-"));
 	await mkdir(join(dir, ".pi"), { recursive: true });
@@ -444,4 +457,95 @@ test("runLoopCycle stops on budget when stopOnBudgetExceeded=true (default, M13)
 	});
 	assert.equal(result.action, "stopped");
 	assert.match(result.reason, /budget/);
+});
+
+// --- /loop-restart: stop, wait, re-arm, start ---
+
+function writeLock(dir, pid) {
+	return writeFile(join(dir, ".pi", "state", "loop.lock"), JSON.stringify({ pid }), "utf8");
+}
+
+test("waitForLoopExit returns immediately when no loop is running", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-wait-none-"));
+	const res = await waitForLoopExit(dir, 1000, 50);
+	assert.equal(res.ok, true);
+	assert.equal(res.timedOut, false);
+});
+
+test("waitForLoopExit times out while a loop PID is still alive", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-wait-live-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	// Our own process PID is definitely alive, so the lock never frees.
+	await writeLock(dir, process.pid);
+	const res = await waitForLoopExit(dir, 300, 50);
+	assert.equal(res.ok, false);
+	assert.equal(res.timedOut, true);
+	assert.equal(res.pid, process.pid);
+});
+
+test("restartLoop with no running loop stops, re-arms, and starts a fresh loop", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-none-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+
+	let started = 0;
+	const result = await restartLoop(dir, {
+		timeoutMs: 500,
+		intervalMs: 50,
+		start: async () => {
+			started += 1;
+			return { ok: true, pid: 1234 };
+		},
+	});
+
+	assert.equal(result.ok, true);
+	assert.equal(result.wasRunning, false);
+	assert.equal(started, 1);
+	// Stop file was written then removed — the fresh loop must not exit.
+	assert.equal(await isStopped(dir), false);
+});
+
+test("restartLoop aborts (does not start) if the running loop does not exit in time", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-live-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	// A live lock owned by this process — it can never exit during the wait.
+	await writeLock(dir, process.pid);
+
+	let started = 0;
+	const result = await restartLoop(dir, {
+		timeoutMs: 300,
+		intervalMs: 50,
+		start: async () => {
+			started += 1;
+			return { ok: true, pid: 9999 };
+		},
+	});
+
+	assert.equal(result.ok, false);
+	assert.equal(result.timedOut, true);
+	assert.equal(result.wasRunning, true);
+	assert.equal(started, 0);
+	// The stop file is left in place so the still-running loop exits on its own.
+	assert.equal(await isStopped(dir), true);
+});
+
+test("restartLoop stops a running loop, waits for its exit, then restarts", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-run-"));
+	const stateDir = join(dir, ".pi", "state");
+	await mkdir(stateDir, { recursive: true });
+	// A stale lock (dead PID) — treated as already stopped, so restart proceeds.
+	await writeLock(dir, 2147483647);
+
+	let started = 0;
+	const result = await restartLoop(dir, {
+		timeoutMs: 500,
+		intervalMs: 50,
+		start: async () => {
+			started += 1;
+			return { ok: true, pid: 4321 };
+		},
+	});
+
+	assert.equal(result.ok, true);
+	assert.equal(started, 1);
+	assert.equal(await isStopped(dir), false);
 });
