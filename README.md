@@ -167,8 +167,25 @@ auto-pi/
 ├── skills/        # Pi skills shipped by the harness (budget-guard, ...)
 ├── templates/     # scaffold/context-pack templates
 ├── tests/         # harness unit tests (node --test)
-└── LICENSE, README.md, package.json, .gitignore
+└── ui/            # auto-pi monitor dashboard (Vite + React + TS + Tailwind)
 ```
+
+## Monitoring the loop (auto-pi monitor)
+
+The `ui/` directory contains a lightweight single-page dashboard that shows the
+live status and progress of the loop: active persona, persona runs & outcomes,
+LLM-provider health (success rate, retries, failures), persona health, a
+progress-event timeline, and token usage.
+
+```bash
+npm run ui:server   # backend API on http://localhost:8787 (reads .pi/logs)
+npm run ui:dev      # Vite dev server on http://localhost:5173
+```
+
+Open **http://localhost:5173**. The dashboard reads the deterministic,
+structured ledgers the loop writes to the active project's `.pi/logs/`
+(`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
+See `ui/README.md` for details.
 
 ## License
 

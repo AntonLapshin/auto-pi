@@ -33,6 +33,14 @@ import {
 	SUMMARY_JSONL_REL,
 	LATEST_LOG_REL,
 	USAGE_LOG_REL,
+	EVENTS_LOG_REL,
+	HEALTH_LOG_REL,
+	appendEvent,
+	readEvents,
+	appendHealth,
+	readHealth,
+	parseGitCommands,
+	classifyGitCommand,
 	loggingOptions,
 } from "../skills/logging/core.js";
 
@@ -315,6 +323,89 @@ test("logPaths resolves all log files under .pi/logs", () => {
 	assert.equal(p.errors, "/ws/.pi/logs/errors.jsonl");
 	assert.equal(p.summaryMd, "/ws/.pi/logs/summary.md");
 	assert.equal(p.usage, "/ws/.pi/logs/usage.jsonl");
+	assert.equal(p.events, "/ws/.pi/logs/events.jsonl");
+	assert.equal(p.health, "/ws/.pi/logs/health.jsonl");
+});
+
+// --- structured progress events (events.jsonl) ---
+
+test("appendEvent writes a structured event and readEvents returns newest-first", async () => {
+	const dir = await makeWorkspace();
+	await appendEvent(dir, { type: "persona.spawned", persona: "engineer", runId: "r1", data: { decision: "engineer" } });
+	await appendEvent(dir, { type: "pr.merged", persona: "engineer", runId: "r2", data: { prNumber: 7 } });
+
+	const events = await readEvents(dir);
+	assert.equal(events.length, 2);
+	// newest first
+	assert.equal(events[0].type, "pr.merged");
+	assert.equal(events[0].data.prNumber, 7);
+	assert.equal(events[1].type, "persona.spawned");
+	assert.ok(events[0].id, "event has an id");
+	assert.ok(events[0].at, "event has a timestamp");
+	await access(join(dir, EVENTS_LOG_REL));
+});
+
+test("appendEvent ignores events without a type and never throws", async () => {
+	const dir = await makeWorkspace();
+	const r = await appendEvent(dir, { data: { x: 1 } });
+	assert.equal(r, null);
+	const events = await readEvents(dir);
+	assert.equal(events.length, 0);
+});
+
+// --- LLM provider health (health.jsonl) ---
+
+test("appendHealth writes a health record and readHealth sums success/failure", async () => {
+	const dir = await makeWorkspace();
+	await appendHealth(dir, { provider: "openai", model: "gpt-4o", runId: "r1", persona: "pm", ok: true, exitCode: 0 });
+	await appendHealth(dir, { provider: "openai", model: "gpt-4o", runId: "r2", persona: "engineer", ok: false, exitCode: 1, retryable: true, retries: 1 });
+	await appendHealth(dir, { provider: "openai", model: "gpt-4o", runId: "r3", persona: "engineer", ok: true, exitCode: 0 });
+
+	const health = await readHealth(dir);
+	assert.equal(health.length, 3);
+	// newest first
+	assert.equal(health[0].ok, true);
+	assert.equal(health[1].ok, false);
+	assert.equal(health[1].retryable, true);
+	await access(join(dir, HEALTH_LOG_REL));
+});
+
+// --- git/gh command parsing + classification ---
+
+test("parseGitCommands extracts git and gh commands from persona output", () => {
+	const out = [
+		"$ git checkout -b task/1-fix",
+		"$ git add .",
+		"$ git commit -m 'fix: thing'",
+		"$ git push -u origin task/1-fix",
+		"$ gh issue create --title 'T1' --label 'pi:ready'",
+		"$ gh pr create --title 'PR' --label 'pi:review-needed'",
+		"$ gh pr review --approve --comment 'LGTM'",
+		"$ gh pr merge --squash",
+		"the engineer ran git status to check",
+	].join("\n");
+	const cmds = parseGitCommands(out);
+	const kinds = cmds.map((c) => c.kind);
+	assert.ok(kinds.includes("git"));
+	assert.ok(kinds.includes("gh"));
+	// prose mention "git status" mid-sentence must NOT match
+	assert.ok(!cmds.some((c) => c.command === "git status"));
+	// duplicates collapsed
+	const dup = parseGitCommands("$ git add .\n$ git add .");
+	assert.equal(dup.length, 1);
+});
+
+test("classifyGitCommand maps lifecycle commands to event types", () => {
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh issue create --title X" }).type, "issue.created");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr create --title X" }).type, "pr.created");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr review --approve" }).type, "pr.approved");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr review --request-changes" }).type, "pr.changes_requested");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr merge --squash" }).type, "pr.merged");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr comment --body ok" }).type, "pr.commented");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh api repos/o/r/issues/1/labels -f labels=pi:ready" }).type, "labels.assigned");
+	assert.equal(classifyGitCommand({ kind: "git", command: "git commit -m x" }).type, "git.commit");
+	assert.equal(classifyGitCommand({ kind: "git", command: "git push -u origin x" }).type, "git.push");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr checks" }).type, "gh.command");
 });
 
 // --- loop integration: a stopped cycle logs a run record + summary ---

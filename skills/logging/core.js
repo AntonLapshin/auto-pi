@@ -22,6 +22,7 @@
  */
 
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
 	readFile,
 	writeFile,
@@ -53,6 +54,12 @@ export const LATEST_LOG_REL = join(LOGS_DIR_REL, "latest.log");
 /** Relative (to workspace) path of the token-usage accumulation ledger. */
 export const USAGE_LOG_REL = join(LOGS_DIR_REL, "usage.jsonl");
 
+/** Relative (to workspace) path of the structured progress-event ledger. */
+export const EVENTS_LOG_REL = join(LOGS_DIR_REL, "events.jsonl");
+
+/** Relative (to workspace) path of the LLM-provider health ledger. */
+export const HEALTH_LOG_REL = join(LOGS_DIR_REL, "health.jsonl");
+
 /** Version of the run-log record schema (plan.md §20.1). */
 export const RUN_LOG_VERSION = 1;
 
@@ -75,6 +82,8 @@ export function logPaths(workspace) {
 		summaryJsonl: join(workspace, SUMMARY_JSONL_REL),
 		latest: join(workspace, LATEST_LOG_REL),
 		usage: join(workspace, USAGE_LOG_REL),
+		events: join(workspace, EVENTS_LOG_REL),
+		health: join(workspace, HEALTH_LOG_REL),
 	};
 }
 
@@ -485,6 +494,250 @@ export async function readUsage(workspace) {
 		// none yet
 	}
 	return { byDay, byCycle, totals };
+}
+
+/**
+ * Append a structured, deterministic progress event to `events.jsonl`.
+ *
+ * This is the observability backbone for the auto-pi UI: every meaningful,
+ * deterministic thing that happens during the loop — a persona spawning or
+ * finishing, a git/gh command the persona executed, an issue/PR lifecycle
+ * action inferred from the persona's commands, a dispatch decision, an LLM
+ * retry — is recorded here as a single JSON line. The UI (and any future
+ * TUI) reads this ledger to render a live timeline of how the project is
+ * progressing.
+ *
+ * Event schema:
+ *   { version, id, at, type, persona, runId, data }
+ *
+ * `type` is a dotted string (e.g. `persona.spawned`, `git.command`,
+ * `issue.created`, `pr.approved`, `llm.retry`). `data` is a structured,
+ * deterministic object (no free-form prose) so downstream consumers can
+ * aggregate/count it reliably.
+ *
+ * Best-effort: never throws (must never break the loop).
+ *
+ * @param {string} workspace
+ * @param {object} event  { type, persona?, runId?, data? }
+ * @param {object} [config]
+ * @returns {Promise<object|null>} the appended event (with id/at), or null
+ */
+export async function appendEvent(workspace, event = {}, config = {}) {
+	try {
+		if (!workspace || !event?.type) return null;
+		const full = {
+			version: 1,
+			id: randomId(),
+			at: new Date().toISOString(),
+			type: event.type,
+			persona: event.persona || "",
+			runId: event.runId || "",
+			data: event.data || {},
+		};
+		await appendJsonl(workspace, EVENTS_LOG_REL, full, config);
+		return full;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Read all progress events from `events.jsonl` (most recent first).
+ * @param {string} workspace
+ * @param {object} [opts] { limit? }
+ * @returns {Promise<Array<object>>}
+ */
+export async function readEvents(workspace, opts = {}) {
+	const { events } = logPaths(workspace);
+	try {
+		const raw = await readFile(events, "utf8");
+		const out = [];
+		for (const line of raw.split("\n")) {
+			const t = line.trim();
+			if (!t) continue;
+			try {
+				out.push(JSON.parse(t));
+			} catch {
+				// skip malformed
+			}
+		}
+		const limit = Number(opts?.limit);
+		return limit > 0 ? out.slice(-limit).reverse() : out.reverse();
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Append an LLM-provider health record to `health.jsonl`.
+ *
+ * One record per persona invocation outcome (after retries), plus one per
+ * retry attempt, so the UI can compute provider success rate, failure
+ * reasons, and retry frequency over time.
+ *
+ * Schema: { version, at, provider, model, runId, persona, ok, exitCode,
+ *           retries, retryable, durationMs, reason }
+ *
+ * @param {string} workspace
+ * @param {object} h  health record fields
+ * @param {object} [config]
+ * @returns {Promise<object|null>}
+ */
+export async function appendHealth(workspace, h = {}, config = {}) {
+	try {
+		if (!workspace) return null;
+		const full = {
+			version: 1,
+			at: new Date().toISOString(),
+			provider: h.provider || "",
+			model: h.model || "",
+			runId: h.runId || "",
+			persona: h.persona || "",
+			ok: Boolean(h.ok),
+			exitCode: Number(h.exitCode) ?? null,
+			retries: Number(h.retries) || 0,
+			retryable: Boolean(h.retryable),
+			durationMs: Number(h.durationMs) || 0,
+			reason: h.reason || "",
+		};
+		await appendJsonl(workspace, HEALTH_LOG_REL, full, config);
+		return full;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Read all LLM-provider health records from `health.jsonl` (most recent first).
+ * @param {string} workspace
+ * @param {object} [opts] { limit? }
+ * @returns {Promise<Array<object>>}
+ */
+export async function readHealth(workspace, opts = {}) {
+	const { health } = logPaths(workspace);
+	try {
+		const raw = await readFile(health, "utf8");
+		const out = [];
+		for (const line of raw.split("\n")) {
+			const t = line.trim();
+			if (!t) continue;
+			try {
+				out.push(JSON.parse(t));
+			} catch {
+				// skip malformed
+			}
+		}
+		const limit = Number(opts?.limit);
+		return limit > 0 ? out.slice(-limit).reverse() : out.reverse();
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Parse git/gh commands from a persona session's stdout/stderr.
+ *
+ * The personas drive the project through `git` and `gh` CLI commands, so we
+ * can deterministically observe what they did by scanning the captured
+ * output for command invocations. This is intentionally lossy/approximate —
+ * it matches common `git ...` and `gh ...` lines — but it is deterministic
+ * and cheap, and it powers the "what git commands did the persona run"
+ * observability + the inferred issue/PR lifecycle events.
+ *
+ * @param {string} stdout
+ * @param {string} [stderr]
+ * @returns {Array<{ command: string, kind: "git"|"gh" }>} matched commands
+ */
+export function parseGitCommands(stdout, stderr = "") {
+	const text = `${stdout || ""}\n${stderr || ""}`;
+	const seen = new Set();
+	const out = [];
+	// Match lines that start (after optional prompt/whitespace) with git/gh and
+	// capture the full command line. Avoids matching prose that merely mentions
+	// "git" mid-sentence.
+	const re = /(?:^|\n)\s*(?:\$\s*)?(git|gh)\s+([^\n]{1,200})/g;
+	let m;
+	while ((m = re.exec(text)) !== null) {
+		const kind = m[1] === "git" ? "git" : "gh";
+		const cmd = `${m[1]} ${m[2].trim()}`;
+		if (!cmd || cmd.length > 220) continue;
+		if (seen.has(cmd)) continue;
+		seen.add(cmd);
+		out.push({ command: cmd, kind });
+	}
+	return out;
+}
+
+/**
+ * Infer a deterministic, coarse project-progress event from a git/gh command.
+ *
+ * Maps command shapes to lifecycle event types (and a compact label) so the
+ * UI can render "issue created", "PR opened", "PR approved", "PR merged",
+ * "reviewed", "labels changed", "branch pushed", etc. without parsing prose.
+ *
+ * @param {{ command: string, kind: string }} c
+ * @returns {{ type: string, data: object }|null}
+ */
+export function classifyGitCommand(c) {
+	const cmd = c.command;
+	const data = { command: cmd, kind: c.kind };
+
+	// --- gh (GitHub CLI) lifecycle commands ---
+	if (c.kind === "gh") {
+		// gh issue create …
+		if (/^gh issue create\b/i.test(cmd)) return { type: "issue.created", data };
+		// gh issue close …
+		if (/^gh issue close\b/i.test(cmd)) return { type: "issue.closed", data };
+		// gh issue edit (labels/title/body) …
+		if (/^gh issue edit\b/i.test(cmd)) return { type: "issue.edited", data };
+		// gh pr create …
+		if (/^gh pr create\b/i.test(cmd)) return { type: "pr.created", data };
+		// gh pr merge …
+		if (/^gh pr merge\b/i.test(cmd)) return { type: "pr.merged", data };
+		// gh pr review --approve / --request-changes / --comment
+		if (/^gh pr review\b/i.test(cmd)) {
+			if (/--approve/i.test(cmd)) return { type: "pr.approved", data };
+			if (/--request-changes/i.test(cmd)) return { type: "pr.changes_requested", data };
+			if (/--comment/i.test(cmd)) return { type: "pr.reviewed", data };
+			return { type: "pr.reviewed", data };
+		}
+		// gh pr comment …
+		if (/^gh pr comment\b/i.test(cmd)) return { type: "pr.commented", data };
+		// gh pr close …
+		if (/^gh pr close\b/i.test(cmd)) return { type: "pr.closed", data };
+		// gh label create …
+		if (/^gh label create\b/i.test(cmd)) return { type: "label.created", data };
+		// gh api …/issues/…/labels (PATCH/POST) → label assignment
+		if (/^gh api\b/i.test(cmd) && /labels/i.test(cmd)) {
+			return { type: "labels.assigned", data };
+		}
+		// gh pr ready / gh pr checks
+		if (/^gh pr ready\b/i.test(cmd)) return { type: "pr.ready", data };
+		return { type: "gh.command", data };
+	}
+
+	// --- git commands ---
+	if (c.kind === "git") {
+		if (/^git (add|rm|mv)\b/i.test(cmd)) return { type: "git.stage", data };
+		if (/^git commit\b/i.test(cmd)) return { type: "git.commit", data };
+		if (/^git push\b/i.test(cmd)) return { type: "git.push", data };
+		if (/^git checkout\b/i.test(cmd)) return { type: "git.checkout", data };
+		if (/^git branch\b/i.test(cmd)) return { type: "git.branch", data };
+		if (/^git merge\b/i.test(cmd)) return { type: "git.merge", data };
+		if (/^git pull\b/i.test(cmd)) return { type: "git.pull", data };
+		if (/^git fetch\b/i.test(cmd)) return { type: "git.fetch", data };
+		if (/^git status\b/i.test(cmd)) return { type: "git.status", data };
+		if (/^git log\b/i.test(cmd)) return { type: "git.log", data };
+		if (/^git diff\b/i.test(cmd)) return { type: "git.diff", data };
+		return { type: "git.command", data };
+	}
+
+	return { type: "command", data };
+}
+
+/** Generate a short random id (uuid). */
+function randomId() {
+	return randomUUID();
 }
 
 /**

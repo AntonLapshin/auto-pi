@@ -257,3 +257,73 @@ test("runPersonaWithRetry: writes stdout/stderr to the run dir", async () => {
 	assert.equal(out, "hello");
 	assert.ok(res.runDir);
 });
+
+// --- structured events + LLM health emission (auto-pi UI observability) ---
+
+test("runPersonaWithRetry: emits progress events (git/gh commands) and health records", async () => {
+	const dir = await makeWorkspace();
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	const execute = async () => ({
+		exitCode: 0,
+		stdout: [
+			"$ git checkout -b task/1-fix",
+			"$ git commit -m 'fix: thing'",
+			"$ git push -u origin task/1-fix",
+			"$ gh pr create --title 'PR 1' --label 'pi:review-needed'",
+			"$ gh pr review --approve --comment 'LGTM'",
+			"tokens: { input: 10, output: 5 }",
+		].join("\n"),
+		stderr: "",
+	});
+	const res = await runPersonaWithRetry(baseOpts(dir, execute));
+	assert.equal(res.ok, true);
+	assert.ok(Array.isArray(res.commands), "result exposes parsed commands");
+	assert.ok(res.commands.some((c) => c.command.startsWith("git commit")));
+
+	// events.jsonl: persona.finished + per-command classified events
+	const { readEvents, readHealth } = await import("../skills/logging/core.js");
+	const events = await readEvents(dir);
+	const types = events.map((e) => e.type);
+	assert.ok(types.includes("persona.finished"), "persona.finished event emitted");
+	assert.ok(types.includes("git.commit"), "git.commit event emitted");
+	assert.ok(types.includes("git.push"), "git.push event emitted");
+	assert.ok(types.includes("pr.created"), "pr.created event emitted");
+	assert.ok(types.includes("pr.approved"), "pr.approved event emitted");
+	assert.ok(events.every((e) => e.persona === "engineer"), "events carry the persona");
+
+	// health.jsonl: one ok record
+	const health = await readHealth(dir);
+	assert.equal(health.length, 1);
+	assert.equal(health[0].ok, true);
+	assert.equal(health[0].persona, "engineer");
+});
+
+test("runPersonaWithRetry: records LLM retry events and health on transient failure", async () => {
+	const dir = await makeWorkspace();
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	let calls = 0;
+	const execute = async () => {
+		calls += 1;
+		if (calls === 1) return { exitCode: 1, stdout: "", stderr: "connection refused" };
+		return { exitCode: 0, stdout: "tokens: { input: 5, output: 2 }", stderr: "" };
+	};
+	const res = await runPersonaWithRetry({
+		...baseOpts(dir, execute),
+		config: { pi: { maxRetries: 2, retryBaseDelayMs: 1, retryMaxDelayMs: 5 } },
+	});
+	assert.equal(res.ok, true);
+	assert.equal(res.retries, 1);
+
+	const { readEvents, readHealth } = await import("../skills/logging/core.js");
+	const events = await readEvents(dir);
+	assert.ok(events.some((e) => e.type === "llm.retry"), "llm.retry event emitted");
+	const retryEvent = events.find((e) => e.type === "llm.retry");
+	assert.equal(retryEvent.data.attempt, 1);
+	assert.ok(retryEvent.data.retryable, "retry marked retryable");
+
+	const health = await readHealth(dir);
+	// one failure (retry) + one final success
+	assert.equal(health.length, 2);
+	assert.equal(health.filter((h) => h.ok).length, 1);
+	assert.equal(health.filter((h) => !h.ok).length, 1);
+});

@@ -30,6 +30,10 @@ import {
 	appendErrorRecord,
 	accumulateTokens,
 	buildRunRecord,
+	appendEvent,
+	appendHealth,
+	parseGitCommands,
+	classifyGitCommand,
 } from "../../skills/logging/core.js";
 import { backoffDelay, sleep } from "../../skills/github/core.js";
 import { resolveProviderModel, providerEnv } from "./provider-env.js";
@@ -489,14 +493,61 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		}, config).catch(() => {});
 	}
 
+	// --- Structured progress events + LLM health (auto-pi UI observability) ---
+	const ok = res.exitCode === 0;
+	// Emit a deterministic "persona finished" event with the run outcome.
+	await appendEvent(workspace, {
+		type: ok ? "persona.finished" : "persona.failed",
+		persona,
+		runId,
+		data: {
+			status: ok ? "ok" : "error",
+			exitCode: res.exitCode,
+			tokensInput: tokens.tokensInput,
+			tokensOutput: tokens.tokensOutput,
+			tokensTotal: tokens.tokensTotal,
+			durationSeconds,
+			gitSha,
+		},
+	}, config).catch(() => {});
+
+	// Parse git/gh commands the persona executed and emit them as events. Each
+	// command is logged once (git.command / gh.command) and, when it maps to a
+	// known project-lifecycle action (issue/PR create/review/approve/merge,
+	// label assignment, commit/push), also as a classified event so the UI can
+	// render progress without parsing prose.
+	const commands = parseGitCommands(res.stdout || "", res.stderr || "");
+	for (const c of commands) {
+		const cls = classifyGitCommand(c);
+		await appendEvent(workspace, {
+			type: cls.type,
+			persona,
+			runId,
+			data: cls.data,
+		}, config).catch(() => {});
+	}
+
+	// LLM-provider health: one record per invocation outcome.
+	await appendHealth(workspace, {
+		provider: config?.pi?.provider || "",
+		model: config?.pi?.model || "",
+		runId,
+		persona,
+		ok,
+		exitCode: res.exitCode,
+		durationMs: Math.round(durationSeconds * 1000),
+		reason: ok ? "" : (res.stderr || res.stdout || "").slice(0, 200),
+	}, config).catch(() => {});
+
 	return {
-		ok: res.exitCode === 0,
+		ok,
 		exitCode: res.exitCode,
 		stdout: res.stdout || "",
 		stderr: res.stderr || "",
 		runDir,
 		tokens,
 		durationSeconds,
+		commands,
 	};
 }
 
@@ -562,11 +613,37 @@ export async function runPersonaWithRetry(opts = {}) {
 		if (!retryable || retries >= maxRetries) break;
 
 		const delayMs = backoffDelay(retries, { baseDelayMs, maxDelayMs });
+		const reason = (res.stderr || res.stdout || "").slice(0, 200) || "persona invocation failed";
 		onRetry({
 			attempt: retries + 1,
-			reason: (res.stderr || res.stdout || "").slice(0, 200) || "persona invocation failed",
+			reason,
 			delayMs,
 		});
+		// Record the retry as an LLM-health event so the UI can surface provider
+		// instability (retry frequency, failure reasons) over time.
+		await appendEvent(workspace, {
+			type: "llm.retry",
+			persona,
+			runId,
+			data: {
+				attempt: retries + 1,
+				delayMs,
+				retryable,
+				exitCode: res.exitCode,
+				reason,
+			},
+		}, config).catch(() => {});
+		await appendHealth(workspace, {
+			provider: config?.pi?.provider || "",
+			model: config?.pi?.model || "",
+			runId,
+			persona,
+			ok: false,
+			exitCode: res.exitCode,
+			retries: retries + 1,
+			retryable,
+			reason,
+		}, config).catch(() => {});
 		await sleep(delayMs);
 		retries += 1;
 	}

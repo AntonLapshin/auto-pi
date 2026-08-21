@@ -54,6 +54,7 @@ import {
 	readErrors,
 	lastRun,
 	logPersonaActivity,
+	appendEvent,
 } from "../../skills/logging/core.js";
 import { notifyEvent, setLogger } from "../../skills/telegram-notify/core.js";
 /** Default per-machine active-project record (matches seed constants). */
@@ -516,8 +517,22 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			config,
 		});
 		log(`dispatch: ${decision.decision} (${decision.reason})`);
+		await appendEvent(workspace, {
+			type: "loop.dispatch",
+			persona: decision.persona || "",
+			data: {
+				decision: decision.decision,
+				reason: decision.reason,
+				openIssues: (state?.issues || []).length,
+				openPrs: (state?.prs || []).length,
+			},
+		}, config).catch(() => {});
 
 		if (decision.decision === "stop") {
+			await appendEvent(workspace, {
+				type: "loop.stop",
+				data: { reason: decision.reason, budgetExceeded: Boolean(budget?.exceeded) },
+			}, config).catch(() => {});
 			await logCycleResult(workspace, config, {
 				action: "stopped",
 				status: "stopped",
@@ -536,6 +551,10 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			return { ok: true, action: "stopped", decision: decision.decision, reason: decision.reason, message: `Loop stopped: ${decision.reason}` };
 		}
 		if (decision.decision === "wait") {
+			await appendEvent(workspace, {
+				type: "loop.wait",
+				data: { reason: decision.reason },
+			}, config).catch(() => {});
 			await logCycleResult(workspace, config, {
 				action: "waiting",
 				status: "waiting",
@@ -623,6 +642,20 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 						});
 
 		log(`running persona "${decision.persona}" (run ${runId})...`);
+		// Structured event: a persona has been spawned (the harness has dispatched
+		// it and is about to launch a fresh LLM session). The UI uses this to show
+		// the currently-active persona.
+		await appendEvent(workspace, {
+			type: "persona.spawned",
+			persona: decision.persona,
+			runId,
+			data: {
+				decision: decision.decision,
+				reason: decision.reason,
+				model: config?.pi?.model || "",
+				provider: config?.pi?.provider || "",
+			},
+		}, config).catch(() => {});
 		// Observability: write a durable "started" activity record (runs.jsonl +
 		// latest.log + summary.md) the moment a persona is dispatched, so there is
 		// always at least one logged activity per persona even if the run is
