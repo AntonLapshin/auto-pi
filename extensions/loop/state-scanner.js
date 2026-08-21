@@ -20,7 +20,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RUNS_LEDGER_REL } from "./constants.js";
+import { RUNS_LEDGER_REL, LABELS } from "./constants.js";
 import { readUsage, estimateCost } from "../../skills/logging/core.js";
 
 /**
@@ -47,10 +47,28 @@ function parseJsonArray(stdout) {
 }
 
 /**
- * Classify PR review state from the reviewDecision / requested reviewers.
+ * Classify PR review state from the reviewDecision / requested reviewers and the
+ * auto-pi labels.
+ *
+ * The auto-pi token is the PR author, so GitHub forbids self-review and the
+ * native `reviewDecision` stays empty even after the Review Engineer records a
+ * decision. Decisions are therefore also recorded via the auto-pi labels:
+ * `pi:changes-requested` / `pi:approved` / (`pi:review-needed` + `pi:review-requested`).
+ *
+ * Treat those labels as the review state so the dispatcher can route a decided
+ * PR back to the Engineer (changes requested → address comments) or to merge
+ * (approved) instead of re-reviewing a decided PR forever. The labels take
+ * precedence over the native decision because they are the authoritative signal
+ * when the native decision is empty (self-review blocked).
+ *
  * Returns one of: "changes_requested", "approved", "review_requested", "none".
  */
-function classifyReview(reviewDecision, requestedReviewers = []) {
+function classifyReview(reviewDecision, requestedReviewers = [], labels = []) {
+	const has = (lbl) => Array.isArray(labels) && labels.includes(lbl);
+	if (has(LABELS.CHANGES_REQUESTED)) return "changes_requested";
+	if (has(LABELS.APPROVED)) return "approved";
+	if (has(LABELS.REVIEW_REQUESTED) || has(LABELS.REVIEW_NEEDED)) return "review_requested";
+
 	const decision = String(reviewDecision || "").toLowerCase();
 	if (decision === "changes_requested") return "changes_requested";
 	if (decision === "approved") return "approved";
@@ -98,18 +116,21 @@ export async function scanGithubState(owner, repo, ghFn = gh) {
 	if (!prsRes.ok) {
 		return { ok: false, error: prsRes.stderr?.trim() || prsRes.stdout?.trim() || "gh pr list failed" };
 	}
-	const prs = parseJsonArray(prsRes.stdout).map((p) => ({
-		number: p.number,
-		title: p.title,
-		headRefName: p.headRefName,
-		baseRefName: p.baseRefName,
-		url: p.url,
-		labels: labelNames(p.labels),
-		review: classifyReview(p.reviewDecision),
-		mergeable: p.mergeable === "MERGEABLE",
-		createdAt: p.createdAt,
-		updatedAt: p.updatedAt,
-	}));
+	const prs = parseJsonArray(prsRes.stdout).map((p) => {
+		const labels = labelNames(p.labels);
+		return {
+			number: p.number,
+			title: p.title,
+			headRefName: p.headRefName,
+			baseRefName: p.baseRefName,
+			url: p.url,
+			labels,
+			review: classifyReview(p.reviewDecision, [], labels),
+			mergeable: p.mergeable === "MERGEABLE",
+			createdAt: p.createdAt,
+			updatedAt: p.updatedAt,
+		};
+	});
 
 	// 3. CI status for the default branch (latest push build).
 	const ciRes = await ghFn(["run", "list", "--repo", fullName, "--limit", "1", "--json",
