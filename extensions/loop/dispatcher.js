@@ -36,6 +36,22 @@ import { DECISION, PERSONAS, LABELS } from "./constants.js";
 export { DECISION, PERSONAS, LABELS };
 
 /**
+ * Pick the oldest (lowest-number) PR from a list, or null when empty.
+ *
+ * Stacked PRs must be reviewed/merged in dependency order: the base PR (lowest
+ * number, created first) first, then each PR stacked on top of it. `gh pr list`
+ * returns PRs newest-first, so callers must not rely on array order — sort by
+ * number ascending and take the first.
+ *
+ * @param {Array<{number: number}>} prs
+ * @returns {object|null} the lowest-numbered PR, or null when the list is empty
+ */
+function pickOldest(prs) {
+	if (!prs || prs.length === 0) return null;
+	return [...prs].sort((a, b) => a.number - b.number)[0];
+}
+
+/**
  * Decide the next action for the loop.
  *
  * @param {object} inputs
@@ -104,11 +120,20 @@ export function dispatch(inputs) {
 		// freshly-opened PR with `pi:review-needed`; `pi:review-requested` and a
 		// `review_requested` decision also count. (This mirrors the Review
 		// context packer's own resolveReviewTarget so the labels agree.)
-		const readyForReview = prs.find(
-			(p) =>
-				hasLabel(p.labels, LABELS.REVIEW_NEEDED) ||
-				hasLabel(p.labels, LABELS.REVIEW_REQUESTED) ||
-				p.review === "review_requested",
+		//
+		// Stacked-PR ordering: when several PRs are awaiting review at once, pick
+		// the OLDEST (lowest-number) one. `gh pr list` returns PRs newest-first,
+		// so a bare `find` would review the newest/middle PR while never touching
+		// the base PR everything is stacked on — the base must be reviewed and
+		// merged first or the stacked PRs can never merge. Lowest number == base
+		// for the normal create-PR-per-issue flow.
+		const readyForReview = pickOldest(
+			prs.filter(
+				(p) =>
+					hasLabel(p.labels, LABELS.REVIEW_NEEDED) ||
+					hasLabel(p.labels, LABELS.REVIEW_REQUESTED) ||
+					p.review === "review_requested",
+			),
 		);
 		if (readyForReview) {
 			return {
@@ -120,8 +145,9 @@ export function dispatch(inputs) {
 
 		// 4d. An approved PR that is not yet merge-ready (e.g. a conflict) →
 		//    Engineer, so it can resolve the conflict and merge it rather than
-		//    being bounced back to review.
-		const approvedPending = prs.find((p) => p.review === "approved");
+		//    being bounced back to review. Prefer the oldest/base PR so the
+		//    dependency chain merges in order.
+		const approvedPending = pickOldest(prs.filter((p) => p.review === "approved"));
 		if (approvedPending) {
 			return {
 				decision: DECISION.ENGINEER_MERGE,
@@ -133,7 +159,7 @@ export function dispatch(inputs) {
 		// 4e. An open PR with no review decision yet (or otherwise unlabeled) →
 		//    Review it. Keeps the loop progressing the single open PR and blocks
 		//    starting new implementation work until the previous PR is resolved.
-		const openPr = prs[0];
+		const openPr = pickOldest(prs);
 		return {
 			decision: DECISION.REVIEW,
 			persona: PERSONAS.REVIEW,

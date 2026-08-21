@@ -114,6 +114,19 @@ test("resolveReviewTarget picks a pi:review-needed PR", () => {
 	assert.equal(t.number, 5);
 });
 
+test("resolveReviewTarget picks the oldest/base PR among a stack (newest-first input)", () => {
+	// `gh pr list` returns PRs newest-first. When several PRs are awaiting
+	// review, the base (lowest-number) PR must be picked first so the stacked
+	// PRs can eventually merge.
+	const prs = [
+		pr(6, ["pi:approved", "pi:merge-ready"]),
+		pr(5, ["pi:review-needed"]),
+		pr(4, ["pi:review-needed"]),
+	];
+	const t = resolveReviewTarget(state([], prs));
+	assert.equal(t.number, 4);
+});
+
 test("resolveReviewTarget picks a review_requested PR", () => {
 	const t = resolveReviewTarget(state([], [pr(3, [], "review_requested")]));
 	assert.equal(t.number, 3);

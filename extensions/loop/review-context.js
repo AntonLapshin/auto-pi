@@ -266,20 +266,42 @@ export async function readPolicyExcerpts(workspace, names = []) {
 export function resolveReviewTarget(state) {
 	const prs = state?.prs || [];
 	const hasLabel = (labels, label) => labels.includes(label);
-	const candidate = prs.find(
-		(p) =>
-			hasLabel(p.labels, LABELS.REVIEW_NEEDED) ||
-			hasLabel(p.labels, LABELS.REVIEW_REQUESTED) ||
-			p.review === "review_requested",
+	// Pick the OLDEST (lowest-number) PR awaiting review. `gh pr list` returns
+	// PRs newest-first, so a bare `find` would review the newest/middle PR while
+	// never touching the base PR everything is stacked on — the base must be
+	// reviewed first or the stacked PRs can never merge. Lowest number == base
+	// for the normal create-PR-per-issue flow. (Mirrors the dispatcher's
+	// oldest-first ordering in rule 4c.)
+	const candidate = oldest(
+		prs.filter(
+			(p) =>
+				hasLabel(p.labels, LABELS.REVIEW_NEEDED) ||
+				hasLabel(p.labels, LABELS.REVIEW_REQUESTED) ||
+				p.review === "review_requested",
+		),
 	);
 	if (candidate) return { number: candidate.number, labels: candidate.labels };
 	// Fallback: any open PR that has not yet reached a review decision (not
 	// approved and not changes-requested) is still awaiting review → review it.
 	// A pending/None review means the PR has no decision yet and belongs to
-	// Review, not the Engineer.
-	const pending = prs.find((p) => p.review !== "approved" && p.review !== "changes_requested");
+	// Review, not the Engineer. Oldest-first again so the dependency chain
+	// reviews in order.
+	const pending = oldest(prs.filter((p) => p.review !== "approved" && p.review !== "changes_requested"));
 	if (pending) return { number: pending.number, labels: pending.labels };
 	return null;
+}
+
+/**
+ * Oldest (lowest-number) PR in a list, or null when empty. PRs are returned
+ * newest-first by `gh pr list`, so sort by number ascending and take the first
+ * to get the base PR of a stack.
+ *
+ * @param {Array<{number: number}>} prs
+ * @returns {object|null}
+ */
+function oldest(prs) {
+	if (!prs || prs.length === 0) return null;
+	return [...prs].sort((a, b) => a.number - b.number)[0];
 }
 
 /**

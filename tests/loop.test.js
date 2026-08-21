@@ -106,6 +106,44 @@ test("dispatch: PR ready for review → Review Engineer", () => {
 	assert.equal(d.persona, PERSONAS.REVIEW);
 });
 
+test("dispatch: stacked PRs → review the oldest/base PR first (newest-first input)", () => {
+	// `gh pr list` returns PRs newest-first. With several `pi:review-needed` PRs
+	// at once, the loop must review the base (lowest-number) PR first — the
+	// stacked PRs can never merge until the base is reviewed and merged.
+	const prs = [
+		pr(6, ["pi:approved", "pi:merge-ready"], "none", true),
+		pr(5, ["pi:review-needed"], "none", true),
+		pr(4, ["pi:review-needed"], "none", true),
+	];
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([], prs),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+	assert.match(d.reason, /PR #4 ready for review/);
+});
+
+test("dispatch: stacked approved PRs → merge the oldest/base PR first", () => {
+	// When several PRs are approved but none is merge-ready, prefer the base PR
+	// so the dependency chain merges in order (rule 4d).
+	const prs = [
+		pr(6, ["pi:approved"], "approved", false),
+		pr(5, ["pi:approved"], "approved", false),
+		pr(4, ["pi:approved"], "approved", false),
+	];
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([], prs),
+	});
+	assert.equal(d.decision, DECISION.ENGINEER_MERGE);
+	assert.match(d.reason, /PR #4 approved but not merge-ready/);
+});
+
 test("dispatch: open issue with unresolved PM notes → PM", () => {
 	const d = dispatch({
 		stopped: false,
