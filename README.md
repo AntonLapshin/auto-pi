@@ -10,51 +10,27 @@ deployed GitHub Pages demo — with minimal human supervision.
 > This repository is the harness itself. `pi install /path/to/auto-pi` activates it
 > inside your Pi agent environment.
 
-## Status
+## Quick demo
 
-Milestones 0–9 are in place: the harness skeleton, the `/loop-doctor` environment
-prerequisite check (M1), the `/loop-seed` initiation flow — clarification, repo
-naming & creation, local workspace, and one-project-per-machine enforcement
-(M2) — the React/Tailwind/TypeScript project scaffold (M3), the CI & GitHub
-Pages deployment workflows (M4), and the project config copy into
-`.pi/config.json` + the git-ignored local-secrets scaffold (M5), the loop
-orchestrator (M6), the PM persona (M7), and the Engineer persona (M8) — issue
-implementation, testing, PR creation, review-comment addressing, and squash
-merge. The Review Engineer persona (M9) — PR verification with physically
-verifiable evidence, missing-test detection, and approve/request-changes flow —
-is implemented. Local logging and execution summary (M10) — `runs.jsonl`,
-`errors.jsonl`, `summary.md`/`summary.jsonl`, `latest.log`, per-day/per-cycle
-token accounting, secret redaction, and config-driven rotation — is implemented.
-Optional Telegram lifecycle notifications (M11) — `skills/telegram-notify`
-project-done / needs-human / budget-stop / manual-stop messages, env-driven
-config, non-fatal when disabled or env vars are absent, and secret redaction —
-is implemented.
+Spin up a brand-new project in one command:
 
-**Milestone 12 (pilot) — run end-to-end.** A real pilot was run on the canonical
-example ("Build a markdown notes app with tags and search"): doctor passed,
-`/loop-seed` created the repo + scaffold + config and started the loop, the PM
-planned and filed issues, the Engineer implemented and opened PRs, the Review
-Engineer verified and approved, the Engineer squash-merged, CI stayed green
-with 100% core coverage, local logs were written with no secrets, and the
-project was marked `done`. GitHub Pages (not available for private repos on the
-free plan) was handled as `pi:needs-human`. One-project-per-machine and the
-`/loop-stop` path were verified. See [`docs/pilot-report.md`](docs/pilot-report.md)
-for the full pilot log and the hardening recommendations it surfaced (M13).
+```bash
+/loop-seed Build a markdown notes app with tags and search
+```
 
-**Milestone 13 (hardening) — productionize.** The harness now survives real-world
-failures: GitHub/network calls retry with exponential backoff and back off on
-rate limits (`skills/github`); a failed persona (LLM) invocation is retried with
-backoff (`config.pi.maxRetries`, default 2) so an unstable provider doesn't burn a
-loop cycle; stale branches are cleaned up, merge conflicts are
-detected and labelled `pi:conflict`, repeated per-issue attempts are capped
-(`limits.maxIssueAttempts`), and `loop.maxConsecutiveFailures` stops the loop
-with a repeated-failure reason. A budget guard (`skills/budget-guard`) enforces
-the per-cycle/per-day/cost limits and the per-persona token caps. Config is
-validated against the schema at `/loop-seed` and loop start, and `/loop-sync-config`
-recopies defaults while preserving project values. The remaining commands
-(`/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`) are implemented, all policies are
-written (`policies/`), and the docs are complete (`docs/`). See
-[`todo/README.md`](todo/README.md) for the milestone plan.
+`/loop-seed` walks you through engaging with the project: it asks a few clarifying
+questions (or you can pass `--yes` to proceed on assumptions), derives and creates
+a GitHub repo, scaffolds a React/Tailwind/TypeScript project with CI and GitHub
+Pages deployment, copies the project config, and starts the autonomous loop. From
+there the PM plans issues, the Engineer implements and tests them, and the Review
+Engineer verifies and approves — all without further input.
+
+Non-interactively, the same flow runs from a shell:
+
+```bash
+npm run seed -- "Build a markdown notes app"          # prompts over stdin
+npm run seed -- "Build a markdown notes app" --yes    # proceed on assumptions
+```
 
 ## Prerequisites
 
@@ -73,36 +49,27 @@ written (`policies/`), and the docs are complete (`docs/`). See
   workflow runs. See [GitHub Token setup](#github-token-setup).
 
 Run `/loop-doctor` (or `npm run doctor`) to validate all prerequisites — it reports
-exactly what is missing and how to fix it (implemented in M1).
+exactly what is missing and how to fix it.
 
 ## One active project per machine
 
 The harness enforces **exactly one active project per machine** at a time. This keeps
 the loop's state, lock file, and budget accounting unambiguous. The active project is
-recorded in `~/.auto-pi/current-project.json`. See
-[`extensions/seed`](extensions/seed) (M2) and [`extensions/loop`](extensions/loop) (M6)
-for the enforcement logic.
+recorded in `~/.auto-pi/current-project.json`.
 
-`/loop-stop` (or `npm run stop`) **pauses** the active project's loop: it writes the stop
-file (so the loop exits at its next cycle) but **preserves the active-project record**,
-so the same project can be resumed or restarted anytime. This is a pause, not a
-"finish" — the project is never removed as active.
-
-To move to another project, use `/loop-switch` (or `npm run switch`). It safely stops the
-current project's loop, points the active-project record at the target locally-seeded
-project, and starts its loop. The previous project's workspace/state are preserved, so
-you can switch back to it at any time.
-
-To create a **brand-new** project, use `/loop-seed` (or `npm run seed`). Since
-`/loop-stop` preserves the active-project record, `/loop-seed` safely stops the
-currently-active project's loop first, then seeds the new project as active.
-
-If you want to **restart** the loop for the same project rather than pause it, use
-`/loop-restart` (or `npm run restart`). It safely stops the running loop — writing the stop
-file so it exits at its next cycle boundary (any in-flight persona finishes normally, never
-killed) — waits for it to actually exit, removes the stop marker, and starts a fresh loop.
-The active-project record is preserved, so the restarted loop picks up the same project.
-Use `--timeout N` to control how long it waits for the old loop to exit (default 60s).
+- `/loop-stop` (or `npm run stop`) **pauses** the active project's loop: it writes the
+  stop file (so the loop exits at its next cycle) but **preserves the active-project
+  record**, so the project can be resumed or restarted anytime.
+- `/loop-switch` (or `npm run switch`) stops the current project's loop, points the
+  active-project record at a target locally-seeded project, and starts its loop. The
+  previous project's workspace/state are preserved, so you can switch back anytime.
+- `/loop-seed` (or `npm run seed`) creates a **brand-new** project: since `/loop-stop`
+  preserves the active-project record, seeding safely stops the currently-active
+  project's loop first, then seeds the new project as active.
+- `/loop-restart` (or `npm run restart`) **restarts** the loop for the same project
+  rather than pausing it: it safely stops the running loop (any in-flight persona
+  finishes normally, never killed), waits for it to exit, and starts a fresh loop.
+  Use `--timeout N` to control how long it waits for the old loop to exit (default 60s).
 
 ## Installation
 
@@ -113,41 +80,34 @@ Install the harness into your Pi environment by pointing `pi install` at this re
 pi install /path/to/auto-pi
 ```
 
-Pi registers the package's extensions from the `pi` block in `package.json`, which
-loads the provider extensions and the harness slash commands. After installation the
-following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-restart`, `/loop-switch`, `/loop-status`,
-`/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
+Pi registers the package's extensions from the `pi` block in `package.json`. After
+installation the following slash commands are available:
 
-| Command       | Purpose                                      | Milestone |
-|---------------|----------------------------------------------|-----------|
-| `/loop-seed`   | Initiate a new project (clarify, create repo, scaffold) | M2 |
-| `/loop-stop`   | Pause the autonomous loop (project stays active) | M6        |
-| `/loop-restart`| Safely restart the autonomous loop (stop, then start again) | M6 |
-| `/loop-switch` | Switch the active project to another locally-seeded project | M6 |
-| `/loop-status` | Active project, loop, and persona status     | M13       |
-| `/loop-logs`   | Show the latest local logs                   | M13       |
-| `/loop-resume` | Resume a stopped/paused project's loop       | M13       |
-| `/loop-sync-config`| Recopy config defaults, preserving project values | M13 |
-| `/loop-doctor` | Validate environment prerequisites           | M1 (implemented) |
+| Command       | Purpose                                      |
+|---------------|----------------------------------------------|
+| `/loop-seed`   | Spin up a new project (clarify, create repo, scaffold, start loop) |
+| `/loop-stop`   | Pause the autonomous loop (project stays active) |
+| `/loop-restart`| Safely restart the autonomous loop (stop, then start again) |
+| `/loop-switch` | Switch the active project to another locally-seeded project |
+| `/loop-status` | Active project, loop, and persona status     |
+| `/loop-logs`   | Show the latest local logs                   |
+| `/loop-resume` | Resume a stopped/paused project's loop       |
+| `/loop-sync-config`| Recopy config defaults, preserving project values |
+| `/loop-doctor` | Validate environment prerequisites           |
 
 Each command also has a fallback `npm run <cmd>` / `node scripts/<cmd>.js` entry for
 non-interactive use (see [`scripts/`](scripts)).
 
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
-> (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`;
-> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`/`/loop-restart`/`/loop-switch`;
-> `extensions/doctor` for `/loop-doctor`) — the `pi` block in `package.json` only declares resource
-> directories, matching the existing repo convention.
+> (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`,
+> `/loop-sync-config`; `extensions/seed` for `/loop-seed`; `extensions/loop` for
+> `/loop`/`/loop-stop`/`/loop-restart`/`/loop-switch`; `extensions/doctor` for
+> `/loop-doctor`) — the `pi` block in `package.json` only declares resource
+> directories.
 
-To verify the installation loaded cleanly:
-
-```bash
-pi --version
-```
-
-then start Pi and confirm `/loop-seed`, `/loop-stop`, `/loop-status`, `/loop-doctor` show up in
-`/`-command completion.
+To verify the installation loaded cleanly, start Pi and confirm `/loop-seed`,
+`/loop-stop`, `/loop-status`, `/loop-doctor` show up in `/`-command completion.
 
 ## GitHub Token setup
 
@@ -162,14 +122,13 @@ Your token must have **`repo`** and **`workflow`** scopes (classic PAT) or, for 
 fine-grained PAT, read/write on *Contents, Issues, Pull requests, Workflows, Pages*.
 See [`docs/github-token.md`](docs/github-token.md) for the full scope table and setup
 steps. Secrets are never written to versioned files; they live only in the
-git-ignored `.pi/local.json` of the generated project (M5) or in environment
-variables.
+git-ignored `.pi/local.json` of the generated project or in environment variables.
 
 ## Repository layout
 
 ```
 auto-pi/
-├── config/        # default config + JSON-Schema (M5)
+├── config/        # default config + JSON-Schema
 ├── docs/          # user/operator documentation (github-token, ...)
 ├── extensions/    # Pi extensions: providers + harness commands + seed/doctor/loop
 ├── personas/      # fresh-session persona prompts (pm, engineer, review-engineer)
@@ -197,6 +156,15 @@ Open **http://localhost:5173**. The dashboard reads the deterministic,
 structured ledgers the loop writes to the active project's `.pi/logs/`
 (`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
 See `ui/README.md` for details.
+
+## Further reading
+
+- [`docs/commands.md`](docs/commands.md) — command-by-command usage
+- [`docs/configuration.md`](docs/configuration.md) — config reference & validation
+- [`docs/personas.md`](docs/personas.md) — PM, Engineer, Review Engineer roles
+- [`docs/github-pages.md`](docs/github-pages.md) — Pages deployment & health
+- [`docs/telegram.md`](docs/telegram.md) — optional Telegram notifications
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — common issues & fixes
 
 ## License
 
