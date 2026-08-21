@@ -223,6 +223,32 @@ export async function readPolicyExcerpts(workspace, names = []) {
 }
 
 /**
+ * Oldest (lowest-number) PR in a list, or null when empty. `gh pr list` returns
+ * PRs newest-first, so sort by number ascending to get the base PR of a stack.
+ *
+ * @param {Array<{number: number}>} prs
+ * @returns {object|null}
+ */
+function oldest(prs) {
+	if (!prs || prs.length === 0) return null;
+	return [...prs].sort((a, b) => a.number - b.number)[0];
+}
+
+/**
+ * True when a PR is approved. Approval is recorded via the `pi:approved` label
+ * because the auto-pi token is the PR author and GitHub forbids self-approval,
+ * so the GitHub `reviewDecision` stays empty even after the Review Engineer
+ * approves. Accept either the `pi:approved` label or an `approved` review
+ * decision.
+ *
+ * @param {{labels?: string[], review?: string}} p
+ * @returns {boolean}
+ */
+function isApproved(p) {
+	return p?.review === "approved" || (p?.labels || []).includes(LABELS.APPROVED);
+}
+
+/**
  * Resolve the target work item for the Engineer from the scanned state.
  *
  * Dispatch priority (matches the dispatcher §15 order):
@@ -239,7 +265,7 @@ export function resolveTarget(state) {
 	const hasLabel = (labels, label) => labels.includes(label);
 
 	// 1. Address review comments on a PR with changes requested.
-	const changesRequested = prs.find((p) => p.review === "changes_requested");
+	const changesRequested = oldest(prs.filter((p) => p.review === "changes_requested"));
 	if (changesRequested) {
 		return { kind: "review", number: changesRequested.number, labels: changesRequested.labels };
 	}
@@ -247,10 +273,17 @@ export function resolveTarget(state) {
 	// 2. Merge an approved PR. Prefer one that is merge-ready; otherwise fall
 	//    back to any approved PR so the Engineer resolves a conflict/block and
 	//    merges it (rather than bouncing it back to review).
+	//
+	//    Approval is recorded via the `pi:approved` label because the auto-pi
+	//    token is the PR author and GitHub forbids self-approval — the GitHub
+	//    `reviewDecision` stays empty even after the Review Engineer approves. We
+	//    treat the `pi:approved` label OR an `approved` review decision as the
+	//    approval signal, and prefer the oldest (lowest-number) PR so the
+	//    dependency chain merges in order.
+	const approved = prs.filter((p) => isApproved(p));
 	const approvedMerge =
-		prs.find(
-			(p) => p.review === "approved" && (p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY)),
-		) || prs.find((p) => p.review === "approved");
+		oldest(approved.filter((p) => p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY))) ||
+		oldest(approved);
 	if (approvedMerge) {
 		return { kind: "merge", number: approvedMerge.number, labels: approvedMerge.labels };
 	}

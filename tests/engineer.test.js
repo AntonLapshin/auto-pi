@@ -127,6 +127,31 @@ test("resolveTarget prioritises approved merge-ready PR", () => {
 	assert.equal(t.number, 10);
 });
 
+test("resolveTarget merges a pi:approved-label PR (self-approval blocked, review empty)", () => {
+	// The auto-pi token is the PR author, so GitHub forbids self-approval and the
+	// reviewDecision stays empty. Approval is recorded via the `pi:approved`
+	// label — the Engineer must treat that label as approval and merge.
+	const t = resolveTarget(state(
+		[issue(1, ["pi:ready"])],
+		[pr(12, ["pi:approved", "pi:merge-ready"], "none", true)],
+	));
+	assert.equal(t.kind, "merge");
+	assert.equal(t.number, 12);
+});
+
+test("resolveTarget merges the oldest/base PR among a stack (newest-first input)", () => {
+	const t = resolveTarget(state(
+		[],
+		[
+			pr(6, ["pi:approved", "pi:merge-ready"], "none", true),
+			pr(5, ["pi:approved", "pi:merge-ready"], "none", true),
+			pr(4, ["pi:approved", "pi:merge-ready"], "none", true),
+		],
+	));
+	assert.equal(t.kind, "merge");
+	assert.equal(t.number, 4);
+});
+
 test("resolveTarget targets an approved-but-not-mergeable PR for merge/conflict", () => {
 	const t = resolveTarget(state(
 		[issue(1, ["pi:ready"])],

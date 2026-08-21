@@ -111,7 +111,7 @@ test("dispatch: stacked PRs → review the oldest/base PR first (newest-first in
 	// at once, the loop must review the base (lowest-number) PR first — the
 	// stacked PRs can never merge until the base is reviewed and merged.
 	const prs = [
-		pr(6, ["pi:approved", "pi:merge-ready"], "none", true),
+		pr(6, ["pi:review-needed"], "none", true),
 		pr(5, ["pi:review-needed"], "none", true),
 		pr(4, ["pi:review-needed"], "none", true),
 	];
@@ -124,6 +124,21 @@ test("dispatch: stacked PRs → review the oldest/base PR first (newest-first in
 	assert.equal(d.decision, DECISION.REVIEW);
 	assert.equal(d.persona, PERSONAS.REVIEW);
 	assert.match(d.reason, /PR #4 ready for review/);
+});
+
+test("dispatch: pi:approved label (self-approval blocked) → Engineer/Merge", () => {
+	// The auto-pi token is the PR author, so GitHub forbids self-approval and the
+	// `reviewDecision` stays empty. Approval is recorded via the `pi:approved`
+	// label — the dispatcher must treat that label as approval and merge.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([], [pr(4, ["pi:approved", "pi:merge-ready"], "none", true)]),
+	});
+	assert.equal(d.decision, DECISION.ENGINEER_MERGE);
+	assert.equal(d.persona, PERSONAS.ENGINEER);
+	assert.match(d.reason, /PR #4 approved and merge-ready/);
 });
 
 test("dispatch: stacked approved PRs → merge the oldest/base PR first", () => {

@@ -52,6 +52,20 @@ function pickOldest(prs) {
 }
 
 /**
+ * True when a PR is approved. Approval is recorded via the `pi:approved` label
+ * (the Review Engineer applies it because the auto-pi token is the PR author
+ * and GitHub forbids self-approval, so the GitHub `reviewDecision` stays empty).
+ * We accept either the `pi:approved` label or an `approved` GitHub review
+ * decision.
+ *
+ * @param {{labels?: string[], review?: string}} p
+ * @returns {boolean}
+ */
+function isApproved(p) {
+	return p?.review === "approved" || (p?.labels || []).includes(LABELS.APPROVED);
+}
+
+/**
  * Decide the next action for the loop.
  *
  * @param {object} inputs
@@ -105,8 +119,16 @@ export function dispatch(inputs) {
 		}
 
 		// 4b. PR approved + merge-ready → Engineer (squash-merge).
-		const approvedMerge = prs.find(
-			(p) => p.review === "approved" && (p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY)),
+		//
+		// Approval is recorded via the `pi:approved` label, because the auto-pi
+		// token is the PR author and GitHub forbids self-approval — so the GitHub
+		// `reviewDecision` stays empty even after the Review Engineer approves. We
+		// treat the `pi:approved` label OR an `approved` review decision as the
+		// approval signal.
+		const approvedMerge = pickOldest(
+			prs.filter(
+				(p) => isApproved(p) && (p.mergeable || hasLabel(p.labels, LABELS.MERGE_READY)),
+			),
 		);
 		if (approvedMerge) {
 			return {
@@ -147,7 +169,7 @@ export function dispatch(inputs) {
 		//    Engineer, so it can resolve the conflict and merge it rather than
 		//    being bounced back to review. Prefer the oldest/base PR so the
 		//    dependency chain merges in order.
-		const approvedPending = pickOldest(prs.filter((p) => p.review === "approved"));
+		const approvedPending = pickOldest(prs.filter((p) => isApproved(p)));
 		if (approvedPending) {
 			return {
 				decision: DECISION.ENGINEER_MERGE,
