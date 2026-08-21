@@ -63,20 +63,6 @@ export async function getGithubOwner() {
 	return res.ok ? res.stdout.trim() : "";
 }
 
-/**
- * The refusal message for "one project per machine" (plan.md §2.2 / README).
- * @param {object} active  current-project.json contents
- */
-export function activeProjectRefusal(active) {
-	return (
-		`Another auto-pi project is already active on this machine: ` +
-		`"${active.projectName}" (${active.repo}).\n\n` +
-		`The harness enforces exactly one active project per machine at a time so the ` +
-		`loop's state, lock file, and budget accounting stay unambiguous.\n\n` +
-		`Use \`/loop-stop\` (or \`npm run stop\`) to finish that project, then run \`/loop-seed\` again.`
-	);
-}
-
 /** Read current-project.json (returns null when absent/invalid). */
 export async function readCurrentProject(currentProjectFile = CURRENT_PROJECT_FILE) {
 	try {
@@ -298,10 +284,30 @@ export async function runSeed(description, io = {}, opts = {}) {
 		return { ok: false, message: wsOk.message };
 	}
 
-	// 1. One active project per machine (refuse if another is active).
+	// 1. One active project per machine. Since `/loop-stop` now only pauses the
+	// loop (it preserves the active-project record), seeding a new project must
+	// stop the currently-active project's loop first so the new seed becomes the
+	// active project. We stop it safely (write the stop file + wait for exit) so
+	// an in-flight persona finishes normally; the old project's workspace/state
+	// are preserved and can be switched back to with `/loop-switch`.
 	const active = await readCurrentProject(opts.currentProjectFile);
 	if (active) {
-		return { ok: false, message: activeProjectRefusal(active) };
+		const { writeStopFile, checkLock, waitForLoopExit } = await import("../loop/orchestrator.js");
+		if (active.workspace) {
+			notify(`A project is already active ("${active.projectName}" @ ${active.repo}). Stopping its loop before seeding the new project...`);
+			await writeStopFile(active.workspace);
+			const lock = await checkLock(active.workspace);
+			if (lock.locked) {
+				notify(`Waiting for the current loop (PID ${lock.pid}) to exit...`);
+				const wait = await waitForLoopExit(active.workspace, 60_000, 1500);
+				if (!wait.ok) {
+					return {
+						ok: false,
+						message: `Timed out waiting for the active project's loop (PID ${wait.pid}) to exit. It has been asked to stop and will exit on its own; run /loop-seed again shortly.`,
+					};
+				}
+			}
+		}
 	}
 
 	// 2. Resolve the GitHub account that will own the repo.

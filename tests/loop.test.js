@@ -30,6 +30,10 @@ import {
 	removeStopFile,
 	waitForLoopExit,
 	restartLoop,
+	listProjects,
+	resolveProject,
+	writeActiveProjectRecord,
+	switchProject,
 } from "../extensions/loop/orchestrator.js";
 import { STOP_FILE_REL } from "../extensions/loop/constants.js";
 
@@ -601,4 +605,127 @@ test("restartLoop stops a running loop, waits for its exit, then restarts", asyn
 	assert.equal(result.ok, true);
 	assert.equal(started, 1);
 	assert.equal(await isStopped(dir), false);
+});
+
+// --- /loop-switch: discover, resolve, and switch the active project ---
+
+/** Build a fake local project workspace with an initiation.json. */
+async function makeProject(base, owner, repoName, projectName) {
+	const workspace = join(base, "workspaces", owner, repoName, "repo");
+	await mkdir(join(workspace, ".pi", "state"), { recursive: true });
+	await writeFile(
+		join(workspace, ".pi", "state", "initiation.json"),
+		JSON.stringify({ projectName, repo: { owner, name: repoName, fullName: `${owner}/${repoName}` } }),
+		"utf8",
+	);
+	return workspace;
+}
+
+test("listProjects discovers locally-seeded projects", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-list-"));
+	await makeProject(base, "octo", "notes-app", "Notes App");
+	await makeProject(base, "octo", "todo-app", "Todo App");
+	// A non-project dir (no initiation.json) is ignored.
+	await mkdir(join(base, "workspaces", "octo", "junk", "repo"), { recursive: true });
+
+	const projects = await listProjects(join(base, "workspaces"));
+	assert.equal(projects.length, 2);
+	assert.ok(projects.some((p) => p.repo === "octo/notes-app" && p.projectName === "Notes App"));
+	assert.ok(projects.some((p) => p.repo === "octo/todo-app"));
+});
+
+test("resolveProject matches by repo slug, full name, and project name", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-resolve-"));
+	await makeProject(base, "octo", "notes-app", "Notes App");
+	const ws = join(base, "workspaces");
+
+	assert.equal((await resolveProject("notes-app", ws)).repo, "octo/notes-app");
+	assert.equal((await resolveProject("octo/notes-app", ws)).repo, "octo/notes-app");
+	assert.equal((await resolveProject("Notes App", ws)).repo, "octo/notes-app");
+	assert.equal(await resolveProject("missing", ws), null);
+});
+
+test("writeActiveProjectRecord writes a readable current-project.json", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-write-"));
+	const cpFile = join(base, "current-project.json");
+	const res = await writeActiveProjectRecord(
+		{ projectName: "Notes App", repo: "octo/notes-app", workspace: "/tmp/ws" },
+		cpFile,
+	);
+	assert.equal(res.ok, true);
+	const read = await readActiveProject(cpFile);
+	assert.equal(read.ok, true);
+	assert.equal(read.active.repo, "octo/notes-app");
+	assert.equal(read.active.workspace, "/tmp/ws");
+});
+
+test("switchProject switches the active-project record to an existing project", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-switch-"));
+	const cpFile = join(base, "current-project.json");
+	const wsA = await makeProject(base, "octo", "project-a", "Project A");
+	const wsB = await makeProject(base, "octo", "project-b", "Project B");
+	await writeActiveProjectRecord({ projectName: "Project A", repo: "octo/project-a", workspace: wsA }, cpFile);
+
+	// Simulate a running loop for project A so the switch must stop it.
+	await mkdir(join(wsA, ".pi", "state"), { recursive: true });
+	await writeLock(wsA, 2147483647); // stale (dead) PID — treated as stopped
+
+	// Leave a stale stop marker on the target (B) — switching must clear it so
+	// B's freshly-started loop runs rather than immediately exiting.
+	await writeFile(join(wsB, STOP_FILE_REL), new Date().toISOString(), "utf8");
+	assert.equal(await isStopped(wsB), true);
+
+	let started = 0;
+	const result = await switchProject("project-b", {}, {
+		currentProjectFile: cpFile,
+		workspacesDir: join(base, "workspaces"),
+		start: async () => {
+			started += 1;
+			return { ok: true, pid: 5555 };
+		},
+	});
+
+	assert.equal(result.ok, true);
+	assert.equal(started, 1);
+	// The active-project record now points at project B.
+	const read = await readActiveProject(cpFile);
+	assert.equal(read.active.repo, "octo/project-b");
+	assert.equal(read.active.workspace, wsB);
+	// B's stale stop marker was cleared so its loop runs.
+	assert.equal(await isStopped(wsB), false);
+});
+
+test("switchProject reports when already on the target project", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-switch-same-"));
+	const cpFile = join(base, "current-project.json");
+	const wsA = await makeProject(base, "octo", "project-a", "Project A");
+	await writeActiveProjectRecord({ projectName: "Project A", repo: "octo/project-a", workspace: wsA }, cpFile);
+
+	let started = 0;
+	const result = await switchProject("project-a", {}, {
+		currentProjectFile: cpFile,
+		workspacesDir: join(base, "workspaces"),
+		start: async () => {
+			started += 1;
+			return { ok: true, pid: 1 };
+		},
+	});
+
+	assert.equal(result.ok, true);
+	assert.match(result.message, /Already on/);
+	assert.equal(started, 0, "no loop is started when already on the target");
+});
+
+test("switchProject fails cleanly when the target does not exist", async () => {
+	const base = await mkdtemp(join(tmpdir(), "auto-pi-switch-missing-"));
+	const cpFile = join(base, "current-project.json");
+	const wsA = await makeProject(base, "octo", "project-a", "Project A");
+	await writeActiveProjectRecord({ projectName: "Project A", repo: "octo/project-a", workspace: wsA }, cpFile);
+
+	const result = await switchProject("nope", {}, {
+		currentProjectFile: cpFile,
+		workspacesDir: join(base, "workspaces"),
+	});
+	assert.equal(result.ok, false);
+	assert.match(result.message, /No local project/);
 });

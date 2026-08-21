@@ -14,6 +14,7 @@
     "seed": "node scripts/seed.js",
     "loop": "node scripts/loop.js",
     "stop": "node scripts/stop.js",
+    "switch": "node scripts/switch.js",
     "restart": "node scripts/restart.js",
     "status": "node scripts/status.js",
     "logs": "node scripts/logs.js",

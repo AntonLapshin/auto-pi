@@ -25,7 +25,7 @@
  */
 
 import { join } from "node:path";
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rm, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { scanGithubState, readBudgetUsage, budgetExceeded } from "./state-scanner.js";
@@ -59,6 +59,9 @@ import {
 import { notifyEvent, setLogger } from "../../skills/telegram-notify/core.js";
 /** Default per-machine active-project record (matches seed constants). */
 export const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
+
+/** Parent dir under which each project's local workspace is created (seed). */
+export const WORKSPACES_DIR = join(homedir(), ".auto-pi", "workspaces");
 
 /** Resolve absolute paths for a project workspace. */
 function paths(workspace) {
@@ -196,11 +199,10 @@ export async function readActiveProject(currentProjectFile = CURRENT_PROJECT_FIL
 /**
  * Clear the per-machine active-project record (current-project.json).
  *
- * `/loop-stop` / `npm run stop` are documented as "finish that project" — the
- * user is told to run them before `/loop-seed` again. Stopping must therefore
- * release the one-project-per-machine slot by removing the active-project
- * record, otherwise `/loop-seed` keeps refusing with the "already active"
- * error even after the loop has been stopped.
+ * NOTE: `/loop-stop` no longer calls this — stopping now just pauses the loop
+ * and preserves the active-project record so the project can be resumed or
+ * restarted. This helper remains for explicit record management (e.g. manual
+ * cleanup / tests).
  *
  * Returns { ok, message }.
  */
@@ -211,6 +213,105 @@ export async function clearActiveProject(currentProjectFile = CURRENT_PROJECT_FI
 	} catch (err) {
 		return { ok: false, message: `Could not clear active-project record ${currentProjectFile}: ${err?.message || err}` };
 	}
+}
+
+/**
+ * Write the per-machine active-project record (current-project.json) to point
+ * at the given project. Used by `/loop-switch` to move the active-project
+ * pointer between projects.
+ *
+ * @param {{ projectName, repo, workspace }} project
+ * @param {string} [currentProjectFile]
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+export async function writeActiveProjectRecord(project, currentProjectFile = CURRENT_PROJECT_FILE) {
+	const { mkdir } = await import("node:fs/promises");
+	const { dirname } = await import("node:path");
+	const payload = {
+		projectName: project.projectName || project.repo || "",
+		repo: project.repo || "",
+		workspace: project.workspace,
+		startedAt: new Date().toISOString(),
+		status: "active",
+	};
+	try {
+		await mkdir(dirname(currentProjectFile), { recursive: true });
+		await writeFile(currentProjectFile, JSON.stringify(payload, null, 2) + "\n", "utf8");
+		return { ok: true, message: `Active-project record written: ${currentProjectFile}` };
+	} catch (err) {
+		return { ok: false, message: `Could not write active-project record ${currentProjectFile}: ${err?.message || err}` };
+	}
+}
+
+/**
+ * List the projects that exist locally under the workspaces dir
+ * (`~/.auto-pi/workspaces/{owner}/{repoName}/repo`), i.e. projects that were
+ * previously seeded and can be switched to.
+ *
+ * @param {string} [workspacesDir]
+ * @returns {Promise<Array<{ owner, repoName, repo, workspace, projectName }>>}
+ */
+export async function listProjects(workspacesDir = WORKSPACES_DIR) {
+	const projects = [];
+	try {
+		const owners = await readdir(workspacesDir, { withFileTypes: true });
+		for (const owner of owners) {
+			if (!owner.isDirectory()) continue;
+			const ownerDir = join(workspacesDir, owner.name);
+			const repos = await readdir(ownerDir, { withFileTypes: true });
+			for (const repo of repos) {
+				if (!repo.isDirectory()) continue;
+				const workspace = join(ownerDir, repo.name, "repo");
+				const initFile = join(workspace, ".pi", "state", "initiation.json");
+				if (!existsSync(initFile)) continue;
+				let projectName = repo.name;
+				try {
+					const init = JSON.parse(await readFile(initFile, "utf8"));
+					if (init?.projectName) projectName = init.projectName;
+				} catch {
+					// fall back to the repo name
+				}
+				projects.push({
+					owner: owner.name,
+					repoName: repo.name,
+					repo: `${owner.name}/${repo.name}`,
+					workspace,
+					projectName,
+				});
+			}
+		}
+	} catch {
+		// workspaces dir missing/empty — no local projects
+	}
+	return projects;
+}
+
+/**
+ * Resolve a `/loop-switch` target string to a locally-existing project.
+ *
+ * Matches (case-insensitive) against the repo full name (`owner/repo`), the
+ * repo slug, or the human-friendly project name. With no target, returns the
+ * first local project (so `/loop-switch` with no args lists available projects
+ * and switches to the first).
+ *
+ * @param {string} target
+ * @param {string} [workspacesDir]
+ * @returns {Promise<object|null>}
+ */
+export async function resolveProject(target, workspacesDir = WORKSPACES_DIR) {
+	const t = String(target || "").trim().toLowerCase();
+	const projects = await listProjects(workspacesDir);
+	if (!t) return projects[0] || null;
+	return (
+		projects.find((p) => {
+			const full = `${p.owner}/${p.repoName}`.toLowerCase();
+			return (
+				full === t ||
+				p.repoName.toLowerCase() === t ||
+				String(p.projectName || "").toLowerCase() === t
+			);
+		}) || null
+	);
 }
 
 /**
@@ -356,6 +457,121 @@ export async function restartLoop(workspace, opts = {}) {
 		pid: started.pid,
 		wasRunning,
 		message: `Loop restarted (${wasRunning ? `stopped PID ${initial.pid} and ` : ""}started PID ${started.pid || "?"}). Check .pi/logs/loop.out.`,
+	};
+}
+
+/**
+ * Switch the active project to a different locally-seeded project — the core of
+ * the `/loop-switch` command.
+ *
+ * Safely stops the current project's loop (if any), then points the per-machine
+ * active-project record at the target project and (optionally) starts its loop.
+ *
+ *   1. Resolve the target from the local workspaces dir (repo slug / full name /
+ *      project name).
+ *   2. If we're already on that project, report and return.
+ *   3. Write the stop file for the current project so its loop (if running)
+ *      exits at its next cycle boundary — a persona in flight finishes normally
+ *      (never SIGKILLed). Wait (poll) for it to actually exit so its lock is
+ *      released and it can't fight the new project.
+ *   4. Rewrite current-project.json to point at the target project.
+ *   5. Clear any stale stop marker on the target, then start its loop detached
+ *      (unless `opts.startLoop === false`).
+ *
+ * The current project is NOT removed — its workspace, state, and lock remain
+ * intact so it can be switched back to at any time.
+ *
+ * @param {string} target repo slug / full name / project name to switch to
+ * @param {object} [io] { log?, notify? }
+ * @param {object} [opts] { timeoutMs?, intervalMs?, start?, startLoop?, workspacesDir?, currentProjectFile? }
+ * @returns {Promise<{ ok: boolean, message: string, target?: object, currentWorkspace?: string|null }>}
+ */
+export async function switchProject(target, io = {}, opts = {}) {
+	const log = opts.log || io.log || ((line) => process.stdout.write(`[loop-switch] ${line}\n`));
+	const notify = io.notify || log;
+	const timeoutMs = Number(opts.timeoutMs) || 60_000;
+	const intervalMs = Number(opts.intervalMs) || 1500;
+	const start = opts.start || startLoopDetached;
+	const workspacesDir = opts.workspacesDir || WORKSPACES_DIR;
+	const currentProjectFile = opts.currentProjectFile || CURRENT_PROJECT_FILE;
+
+	// 1. Resolve the target project from existing local workspaces.
+	const resolved = await resolveProject(target, workspacesDir);
+	if (!resolved) {
+		return {
+			ok: false,
+			message: `No local project matches "${target}". Use /loop-seed to create a new project, or /loop-switch with no args to list available projects.`,
+		};
+	}
+
+	// 2. Read the current active project (may be absent).
+	const activeRes = await readActiveProject(currentProjectFile);
+	const currentWorkspace = activeRes.ok ? activeRes.active.workspace : null;
+
+	// Already on the target project.
+	if (currentWorkspace && currentWorkspace === resolved.workspace) {
+		return {
+			ok: true,
+			currentWorkspace,
+			target: resolved,
+			message: `Already on project "${resolved.projectName}" (${resolved.repo}).`,
+		};
+	}
+
+	// 3. Safely stop the current project's loop (if any).
+	if (currentWorkspace) {
+		log(`stopping current project's loop (${currentWorkspace})...`);
+		await writeStopFile(currentWorkspace);
+		const initial = await checkLock(currentWorkspace);
+		if (initial.locked) {
+			log(`waiting for loop PID ${initial.pid} to exit (up to ${Math.round(timeoutMs / 1000)}s)...`);
+			const wait = await waitForLoopExit(currentWorkspace, timeoutMs, intervalMs);
+			if (!wait.ok) {
+				// Leave the stop file in place so the still-running loop exits on its
+				// own at its next cycle; the record is unchanged so nothing is lost.
+				return {
+					ok: false,
+					currentWorkspace,
+					message: `Timed out waiting for the current loop (PID ${wait.pid}) to exit. It has been asked to stop and will exit on its own; run /loop-switch again shortly.`,
+				};
+			}
+			log(`current loop exited cleanly (PID ${initial.pid}).`);
+		}
+	}
+
+	// 4. Point the active-project record at the target.
+	const written = await writeActiveProjectRecord(
+		{ projectName: resolved.projectName, repo: resolved.repo, workspace: resolved.workspace },
+		currentProjectFile,
+	);
+	if (!written.ok) {
+		return { ok: false, currentWorkspace, message: written.message };
+	}
+	log(`active-project record now points at ${resolved.repo}.`);
+
+	// 5. Optionally start the target's loop. Clear any stale stop marker first so
+	// the freshly-started loop runs rather than immediately exiting (the target
+	// may have been paused/stopped previously).
+	if (opts.startLoop !== false) {
+		await removeStopFile(resolved.workspace);
+		const started = await start(resolved.workspace);
+		if (started.ok) {
+			notify(`Switched to ${resolved.repo}; loop started (PID ${started.pid || "?"}). Check .pi/logs/loop.out.`);
+		} else {
+			notify(
+				`Switched to ${resolved.repo}, but could not auto-start its loop: ${started.message || "unknown error"}. Use /loop-resume to start it.`,
+				"warning",
+			);
+		}
+	} else {
+		notify(`Switched to ${resolved.repo}. Use /loop-resume to start its loop.`);
+	}
+
+	return {
+		ok: true,
+		currentWorkspace,
+		target: resolved,
+		message: `Switched active project to ${resolved.repo} (${resolved.workspace}).`,
 	};
 }
 

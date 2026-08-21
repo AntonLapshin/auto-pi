@@ -6,8 +6,9 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 | Command | Purpose | Fallback CLI |
 |---------|---------|--------------|
 | `/loop-seed` | Initiate a new project (clarify, create repo, scaffold, start loop) | `npm run seed` |
-| `/loop-stop` | Stop the autonomous loop | `npm run stop` |
+| `/loop-stop` | Pause the autonomous loop (project stays active) | `npm run stop` |
 | `/loop-restart` | Safely restart the autonomous loop | `npm run restart` |
+| `/loop-switch` | Switch the active project to another locally-seeded project | `npm run switch` |
 | `/loop-status` | Show active project, loop, last run, issues/PRs, budget | `npm run status` |
 | `/loop-logs` | Show the latest local logs | `npm run logs` |
 | `/loop-resume` | Resume a stopped/paused project's loop | `npm run resume` |
@@ -17,9 +18,15 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 
 ## `/loop-seed <description>`
 
-Initiates a new project: one-project-per-machine enforcement → **explicit project
-name** → clarification → repo naming → repo creation → local clone → scaffold →
-config copy → active-project record → auto-start the loop.
+Initiates a new project: stop the currently-active project's loop (if any) →
+**explicit project name** → clarification → repo naming → repo creation → local
+clone → scaffold → config copy → active-project record → auto-start the loop.
+
+Because `/loop-stop` preserves the active-project record (it only pauses the
+loop), `/loop-seed` no longer refuses while another project is active — it
+safely stops the current project's loop first, then seeds the new project as
+active. The previous project's workspace/state are preserved and can be switched
+back to with `/loop-switch`.
 
 The command asks for an explicit **project name** (used for the repo slug and
 display name); the `<description>` argument (optional) is used for clarification.
@@ -30,20 +37,41 @@ display name); the `<description>` argument (optional) is used for clarification
 
 ## `/loop-stop`
 
-Writes the stop file (the loop exits at its next cycle) **and clears the
-active-project record**. Stopping "finishes" the project and releases the
-one-project-per-machine slot, so you can immediately run `/loop-seed` again to
-start a new project.
+Pauses the autonomous loop for the active project by writing the stop file (the
+loop exits at its next cycle). The **active-project record is preserved**, so
+the same project can be resumed or restarted anytime — this is a pause, not a
+"finish".
 
 ```bash
 /loop-stop
 npm run stop
 ```
 
-> Note: clearing the active-project record means a stopped project can no
-> longer be resumed with `/loop-resume`. If you only want to pause the loop
-> while keeping the project active, stop the loop process directly (kill the
-> PID from `/loop-status`); the active-project record stays intact.
+> Stopping only pauses the loop. The project remains active, so you can
+> `/loop-resume` or `/loop-restart` it anytime. To move to another project, use
+> `/loop-switch`; to create a brand-new project, use `/loop-seed`.
+
+## `/loop-switch [<project>]`
+
+Switches the active project to another **locally-seeded** project. It safely
+stops the current project's loop (writing the stop file and waiting for it to
+exit at its cycle boundary — an in-flight persona finishes normally), points the
+active-project record at the target, and starts the target's loop.
+
+The target can be matched by repo slug (`build-a-notes-app`), full repo name
+(`owner/repo`), or human-friendly project name. With no argument, it lists the
+available local projects (and, interactively, lets you pick one).
+
+```bash
+/loop-switch build-a-notes-app
+/loop-switch          # list projects and pick one
+npm run switch -- build-a-notes-app
+npm run switch -- --list   # just list available projects
+npm run switch -- --no-start  # switch without auto-starting the loop
+```
+
+> The previous project is not deleted — its workspace, state, and lock remain
+> intact, so you can switch back to it at any time.
 
 ## `/loop-restart [--timeout N]`
 
@@ -96,8 +124,8 @@ Removes the stop marker and starts the loop (if not already running), so a
 paused project resumes. (Named `/loop-resume` to avoid clashing with pi's
 built-in `/resume` session-switch command.)
 
-Resume requires an active project record. After `/loop-stop` clears the record,
-resume reports that no active project exists and points you to `/loop-seed`.
+Resume requires an active project record. Since `/loop-stop` preserves the
+record, a stopped project can always be resumed with `/loop-resume`.
 
 ```bash
 /loop-resume

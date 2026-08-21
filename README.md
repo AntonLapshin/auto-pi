@@ -78,16 +78,26 @@ exactly what is missing and how to fix it (implemented in M1).
 ## One active project per machine
 
 The harness enforces **exactly one active project per machine** at a time. This keeps
-the loop's state, lock file, and budget accounting unambiguous. `/loop-seed` refuses to run
-while another project is active, with a clear message. See
-[`extensions/seed`](extensions/seed) (M2) for the enforcement logic.
+the loop's state, lock file, and budget accounting unambiguous. The active project is
+recorded in `~/.auto-pi/current-project.json`. See
+[`extensions/seed`](extensions/seed) (M2) and [`extensions/loop`](extensions/loop) (M6)
+for the enforcement logic.
 
-`/loop-stop` (or `npm run stop`) "finishes" the active project: it writes the stop file
-(so the loop exits at its next cycle) **and clears the active-project record**
-(`~/.auto-pi/current-project.json`), releasing the one-project-per-machine slot so you can
-immediately run `/loop-seed` again.
+`/loop-stop` (or `npm run stop`) **pauses** the active project's loop: it writes the stop
+file (so the loop exits at its next cycle) but **preserves the active-project record**,
+so the same project can be resumed or restarted anytime. This is a pause, not a
+"finish" — the project is never removed as active.
 
-If you want to **restart** the loop for the same project rather than finish it, use
+To move to another project, use `/loop-switch` (or `npm run switch`). It safely stops the
+current project's loop, points the active-project record at the target locally-seeded
+project, and starts its loop. The previous project's workspace/state are preserved, so
+you can switch back to it at any time.
+
+To create a **brand-new** project, use `/loop-seed` (or `npm run seed`). Since
+`/loop-stop` preserves the active-project record, `/loop-seed` safely stops the
+currently-active project's loop first, then seeds the new project as active.
+
+If you want to **restart** the loop for the same project rather than pause it, use
 `/loop-restart` (or `npm run restart`). It safely stops the running loop — writing the stop
 file so it exits at its next cycle boundary (any in-flight persona finishes normally, never
 killed) — waits for it to actually exit, removes the stop marker, and starts a fresh loop.
@@ -105,14 +115,15 @@ pi install /path/to/auto-pi
 
 Pi registers the package's extensions from the `pi` block in `package.json`, which
 loads the provider extensions and the harness slash commands. After installation the
-following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-restart`, `/loop-status`,
+following commands are available (interactively as `/loop-seed`, `/loop-stop`, `/loop-restart`, `/loop-switch`, `/loop-status`,
 `/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
 
 | Command       | Purpose                                      | Milestone |
 |---------------|----------------------------------------------|-----------|
 | `/loop-seed`   | Initiate a new project (clarify, create repo, scaffold) | M2 |
-| `/loop-stop`   | Stop the autonomous loop                     | M6        |
+| `/loop-stop`   | Pause the autonomous loop (project stays active) | M6        |
 | `/loop-restart`| Safely restart the autonomous loop (stop, then start again) | M6 |
+| `/loop-switch` | Switch the active project to another locally-seeded project | M6 |
 | `/loop-status` | Active project, loop, and persona status     | M13       |
 | `/loop-logs`   | Show the latest local logs                   | M13       |
 | `/loop-resume` | Resume a stopped/paused project's loop       | M13       |
@@ -125,7 +136,7 @@ non-interactive use (see [`scripts/`](scripts)).
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
 > (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`;
-> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`/`/loop-restart`;
+> `extensions/seed` for `/loop-seed`; `extensions/loop` for `/loop`/`/loop-stop`/`/loop-restart`/`/loop-switch`;
 > `extensions/doctor` for `/loop-doctor`) — the `pi` block in `package.json` only declares resource
 > directories, matching the existing repo convention.
 

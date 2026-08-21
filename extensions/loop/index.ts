@@ -1,14 +1,17 @@
 /**
- * The auto-pi `/loop`, `/loop-stop`, and `/loop-restart` commands (M6).
+ * The auto-pi `/loop`, `/loop-stop`, `/loop-restart`, and `/loop-switch` commands (M6).
  *
  * `/loop` starts the autonomous loop for the active project (or reports that a
- * loop is already running). `/loop-stop` stops it by writing the stop file.
+ * loop is already running). `/loop-stop` pauses it by writing the stop file
+ * (the active-project record is preserved, so it can be resumed/restarted).
  * `/loop-restart` safely restarts it: stop the running loop (waiting for it to
- * exit cleanly), then start it again.
+ * exit cleanly), then start it again. `/loop-switch` moves the active project
+ * to another locally-seeded project: it stops the current loop, points the
+ * active-project record at the target, and starts its loop.
  *
  * All reuse the shared core in `extensions/loop/orchestrator.js` (also used by
- * the `npm run loop` / `npm run stop` / `npm run restart` fallback CLIs) so the
- * interactive commands and the CLI behave identically.
+ * the `npm run loop` / `npm run stop` / `npm run restart` / `npm run switch`
+ * fallback CLIs) so the interactive commands and the CLI behave identically.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -18,8 +21,9 @@ import {
 	readActiveProject,
 	checkLock,
 	writeStopFile,
-	clearActiveProject,
 	restartLoop,
+	switchProject,
+	listProjects,
 } from "./orchestrator.js";
 
 export default function (pi: ExtensionAPI) {
@@ -86,7 +90,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("loop-stop", {
-		description: "Stop the autonomous loop for the active project (writes the stop file)",
+		description: "Pause the autonomous loop for the active project (writes the stop file; the project stays active so it can be resumed/restarted)",
 		handler: async (_args, ctx) => {
 			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
 				ctx.ui.notify(text, level);
@@ -99,15 +103,47 @@ export default function (pi: ExtensionAPI) {
 			const workspace = activeRes.active.workspace;
 			const stopFile = await writeStopFile(workspace);
 			notify(`Stop file written: ${stopFile}. The loop will exit at its next cycle.`);
-			// Stopping "finishes" the project: release the one-project-per-machine
-			// slot so `/loop-seed` can start a new project (previously the
-			// active-project record lingered and `/loop-seed` kept refusing).
-			const cleared = await clearActiveProject();
-			if (cleared.ok) {
-				notify("Active-project record cleared — you can now run /loop-seed again.", "success");
-			} else {
-				notify(cleared.message, "warning");
+			// Stopping only pauses the loop — the active-project record is preserved
+			// so the same project can be resumed (/loop-resume) or restarted
+			// (/loop-restart) anytime. Use /loop-switch to move to another project.
+			notify(
+				`Project "${activeRes.active.repo || activeRes.active.projectName || workspace}" remains active — resume with /loop-resume, restart with /loop-restart, or switch with /loop-switch.`,
+			);
+		},
+	});
+
+	pi.registerCommand("loop-switch", {
+		description:
+			"Switch the active project to another locally-seeded project (stops the current loop, points the active-project record at the target, starts its loop)",
+		handler: async (args, ctx) => {
+			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
+				ctx.ui.notify(text, level);
+
+			const target = String(args ?? "").trim();
+
+			// No target → list available projects and switch to the first (or ask).
+			if (!target) {
+				const projects = await listProjects();
+				if (projects.length === 0) {
+					notify("No local projects found. Use /loop-seed to create one.", "warning");
+					return;
+				}
+				const labels = projects.map((p) => `${p.repo} — ${p.projectName}`);
+				let pick = projects[0].repo;
+				if (ctx.hasUI && ctx.ui.select) {
+					const chosen = await ctx.ui.select("Switch to which project?", labels);
+					const idx = chosen ? labels.indexOf(chosen) : -1;
+					if (idx >= 0) pick = projects[idx].repo;
+				}
+				const result = await switchProject(pick, { notify });
+				notify(result.message, result.ok ? "success" : "error");
+				process.stdout.write(result.message + "\n");
+				return;
 			}
+
+			const result = await switchProject(target, { notify });
+			notify(result.message, result.ok ? "success" : "error");
+			process.stdout.write(result.message + "\n");
 		},
 	});
 

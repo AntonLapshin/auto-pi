@@ -3,7 +3,8 @@
 Implements the `/loop-seed` initiation flow (M2).
 
 - `core.js` — shared orchestration (also imported by `scripts/seed.js`): enforces
-  **one active project per machine**, runs clarification, derives & checks repo
+  **one active project per machine** (stopping the currently-active project's loop
+  first so the new seed becomes active), runs clarification, derives & checks repo
   names (with `{name}-app` / `{name}-{shortid}` fallbacks), creates the GitHub
   repo via `gh repo create`, clones it into the workspace, **scaffolds the
   React/Tailwind/TS project** (M3), **copies the project config** into

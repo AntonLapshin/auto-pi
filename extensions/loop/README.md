@@ -7,7 +7,7 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 
 | File               | Purpose |
 |--------------------|---------|
-| `orchestrator.js`  | The loop core: read config, acquire lock, check active project/stop, scan state, dispatch, build context, run persona, log, sleep, repeat (plan.md §13.1). Also `writeStopFile` / `isStopped` / `acquireLock` / `releaseLock` / `checkLock`, plus the `/loop-restart` helpers: `removeStopFile` / `waitForLoopExit` / `startLoopDetached` / `restartLoop`. |
+| `orchestrator.js`  | The loop core: read config, acquire lock, check active project/stop, scan state, dispatch, build context, run persona, log, sleep, repeat (plan.md §13.1). Also `writeStopFile` / `isStopped` / `acquireLock` / `releaseLock` / `checkLock`, plus the `/loop-restart` helpers: `removeStopFile` / `waitForLoopExit` / `startLoopDetached` / `restartLoop`, and the `/loop-switch` helpers: `listProjects` / `resolveProject` / `writeActiveProjectRecord` / `switchProject`. |
 | `state-scanner.js` | Reads open issues, open PRs, CI status, labels, and budget usage from GitHub (plan.md §13.1 step 5). |
 | `dispatcher.js`    | Decides the next persona per the §15 dispatch order. |
 | `pm-context.js`    | PM context packer (M7, plan.md §21.1): reads manifest/project-state/changelog, open issue + PR summaries, recent merged PRs, and policy excerpts for the PM persona. |
@@ -15,7 +15,7 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 | `review-context.js` | Review Engineer context packer (M9, plan.md §21.1): resolves the target PR (a `pi:review-needed` / review-requested PR), includes the PR body + diff summary, linked issue + acceptance criteria, review settings (`reviewerCanPushTestCommits`), verification commands, review rules, and policy excerpts for the Review Engineer persona. |
 | `persona-runner.js`| Launches a fresh Pi persona session: unique run ID, no session persistence, context passed as a file, output captured in the run dir (plan.md §14 / §29.3). M10 adds full run-log records (plan.md §20.1) and token/cost accounting via `skills/logging/core.js`. M13 adds `runPersonaWithRetry` — a retry/backoff wrapper around the LLM invocation so a single transient provider failure (network blip, 5xx, timeout, rate limit, empty output) is retried with exponential backoff + jitter instead of burning a loop cycle; non-transient failures fail fast. Tuned via `config.pi.maxRetries` (default 2), `retryBaseDelayMs` (5000), `retryMaxDelayMs` (30000). |
 | `constants.js`     | Shared paths (`.pi/state/loop.lock`, `.pi/state/stop`, `.pi/logs/runs.jsonl`, `.pi/runs/`) and decision/label constants. |
-| `index.ts`         | Registers the `/loop`, `/loop-stop`, and `/loop-restart` slash commands. |
+| `index.ts`         | Registers the `/loop`, `/loop-stop`, `/loop-restart`, and `/loop-switch` slash commands. |
 
 ## Loop state (inside the active project's workspace)
 
@@ -32,9 +32,10 @@ lock/stop files, GitHub state scanner, dispatcher, and fresh persona runner.
 ## CLI / commands
 
 - `npm run loop` (or `node scripts/loop.js`) — run the loop (supports `--once`, `--cycles N`, `--dry-run`).
-- `npm run stop` (or `node scripts/stop.js`) — write the stop file.
+- `npm run stop` (or `node scripts/stop.js`) — pause the loop (write the stop file; preserves the active-project record).
 - `npm run restart` (or `node scripts/restart.js`) — safely restart the loop (stop, wait, start again; `--timeout N`).
-- `/loop`, `/loop-stop`, and `/loop-restart` interactive commands registered here.
+- `npm run switch` (or `node scripts/switch.js`) — switch the active project to another locally-seeded project (`--list`, `--no-start`, `--timeout N`).
+- `/loop`, `/loop-stop`, `/loop-restart`, and `/loop-switch` interactive commands registered here.
 - `/loop-seed` auto-starts the loop via `nohup node scripts/loop.js > .pi/logs/loop.out 2>&1 &`.
 
 The core is plain JS so it is shared between the fallback CLIs (`scripts/loop.js`,
