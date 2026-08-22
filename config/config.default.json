@@ -32,7 +32,7 @@
   },
   "github": {
     "autoCreateRepo": true,
-    "repoVisibility": "private"
+    "repoVisibility": "public"
   },
   "stack": {
     "framework": "react",

@@ -57,7 +57,7 @@
       "default": {},
       "properties": {
         "autoCreateRepo": { "type": "boolean", "default": true },
-        "repoVisibility": { "type": "string", "enum": ["public", "private"], "default": "private" }
+        "repoVisibility": { "type": "string", "enum": ["public", "private"], "default": "public" }
       }
     },
     "stack": {

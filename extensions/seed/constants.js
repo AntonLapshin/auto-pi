@@ -22,7 +22,7 @@ export const CURRENT_PROJECT_FILE = join(AUTO_PI_DIR, "current-project.json");
 export const WORKSPACES_DIR = join(AUTO_PI_DIR, "workspaces");
 
 /** Re-read GitHub owner from `gh` rather than guessing. */
-export const DEFAULT_VISIBILITY = "private";
+export const DEFAULT_VISIBILITY = "public";
 
 /** Default branch created for new repos (matches config.default.json). */
 export const DEFAULT_BRANCH = "main";

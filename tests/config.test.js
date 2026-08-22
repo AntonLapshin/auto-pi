@@ -32,7 +32,7 @@ const DEFAULTS = {
 	pi: { model: "", provider: "", contextMaxTokens: 150000 },
 	loop: { intervalSeconds: 60 },
 	limits: { maxBatchIssues: 3 },
-	github: { autoCreateRepo: true, repoVisibility: "private" },
+	github: { autoCreateRepo: true, repoVisibility: "public" },
 	stack: { framework: "react", typescript: true, tailwind: true, testRunner: "vitest" },
 	quality: { coreCoveragePercent: 100 },
 	pages: { enabled: true, deployBranch: "gh-pages" },
@@ -70,7 +70,7 @@ test("buildProjectConfig fills the project section and preserves defaults", () =
 
 	// Other sections are carried over unchanged.
 	assert.equal(cfg.loop.intervalSeconds, 60);
-	assert.equal(cfg.github.repoVisibility, "private");
+	assert.equal(cfg.github.repoVisibility, "public");
 	assert.equal(cfg.notifications.telegram.enabled, false);
 	assert.equal(cfg.stack.framework, "react");
 
