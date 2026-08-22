@@ -6,11 +6,8 @@ export function SummaryPanel({ status }: { status: StatusResponse }) {
   const s = status;
   const active = s.activePersona;
   const today = s.usage.today;
-  const maxDayTokens = Math.max(
-    1,
-    ...s.usage.byDay.map((d) => d.tokensTotal),
-    today.tokensTotal,
-  );
+  const usageByHour = s.usage.byHour ?? [];
+  const maxHourTokens = Math.max(1, ...usageByHour.map((d) => d.tokensTotal));
 
   return (
     <section className="grid gap-4">
@@ -41,24 +38,24 @@ export function SummaryPanel({ status }: { status: StatusResponse }) {
         />
       </div>
 
-      {/* Token usage over the last 14 days */}
+      {/* Token usage over the last 24 hours */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-            Token usage · last {s.usage.byDay.length || 1} days
+            Token usage · last {usageByHour.length || 1} hours
           </h2>
           <span className="text-xs text-slate-500">total {fmtTokens(s.usage.totals.tokensTotal)}</span>
         </div>
-        {s.usage.byDay.length === 0 ? (
+        {usageByHour.length === 0 ? (
           <p className="text-sm text-slate-500">No usage recorded yet.</p>
         ) : (
           <div className="flex h-28 items-end gap-1.5">
-            {s.usage.byDay.map((d) => {
-              const h = Math.max(4, (d.tokensTotal / maxDayTokens) * 100);
+            {usageByHour.map((d) => {
+              const h = Math.max(4, (d.tokensTotal / maxHourTokens) * 100);
               return (
-                <div key={d.date} className="flex flex-1 flex-col items-center gap-1" title={`${d.date}: ${fmtTokens(d.tokensTotal)}`}>
+                <div key={d.hour} className="flex flex-1 flex-col items-center gap-1" title={`${d.hour}:00 — ${fmtTokens(d.tokensTotal)}`}>
                   <div className="w-full rounded-t bg-gradient-to-t from-indigo-600 to-violet-500" style={{ height: `${h}%` }} />
-                  <span className="text-[10px] text-slate-500">{d.date.slice(5)}</span>
+                  <span className="whitespace-nowrap text-[10px] text-slate-500">{d.hour.slice(11)}h</span>
                 </div>
               );
             })}

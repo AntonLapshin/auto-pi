@@ -7,8 +7,8 @@ export function fmtNumber(n: number | undefined | null): string {
 
 export function fmtTokens(n: number | undefined | null): string {
   const v = Number(n) || 0;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  if (v >= 1_000_000) return `${Math.round(v / 1_000_000)}M`;
+  if (v >= 1_000) return `${Math.round(v / 1_000)}K`;
   return String(v);
 }
 

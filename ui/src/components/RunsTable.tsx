@@ -1,5 +1,5 @@
 import type { RunRecord } from "../lib/types";
-import { fmtNumber, fmtTime, fmtDate, fmtDuration } from "../lib/format";
+import { fmtTokens, fmtTime, fmtDate, fmtDuration } from "../lib/format";
 
 function statusColor(status: string): string {
   if (status === "ok" || status === "ran") return "text-emerald-400";
@@ -18,8 +18,9 @@ export function RunsTable({ runs }: { runs: RunRecord[] }) {
       {runs.length === 0 ? (
         <p className="text-sm text-slate-500">No runs recorded.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="max-h-[500px] overflow-y-auto">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
                 <th className="py-2 pr-3">time</th>
@@ -40,7 +41,7 @@ export function RunsTable({ runs }: { runs: RunRecord[] }) {
                   <td className="py-1.5 pr-3 font-medium text-indigo-300">{r.persona || "—"}</td>
                   <td className={`py-1.5 pr-3 font-medium ${statusColor(r.status)}`}>{r.status || r.action}</td>
                   <td className="py-1.5 pr-3 text-slate-300">{r.action}</td>
-                  <td className="py-1.5 pr-3 text-right font-mono text-slate-300">{fmtNumber(r.tokensTotal)}</td>
+                  <td className="py-1.5 pr-3 text-right font-mono text-slate-300">{fmtTokens(r.tokensTotal)}</td>
                   <td className="py-1.5 pr-3 text-right font-mono text-slate-400">{fmtDuration(r.durationSeconds)}</td>
                   <td className="max-w-[16rem] truncate py-1.5 text-xs text-slate-500" title={r.reason}>
                     {r.reason || ""}
@@ -49,6 +50,7 @@ export function RunsTable({ runs }: { runs: RunRecord[] }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </section>

@@ -58,6 +58,7 @@ export interface StatusResponse {
     today: { tokensTotal: number; runs: number };
     totals: { tokensTotal: number; runs: number };
     byDay: { date: string; tokensTotal: number; runs: number }[];
+    byHour: { hour: string; tokensTotal: number; runs: number }[];
   };
   health: HealthSummary;
   counts: { runs: number; errors: number; events: number };

@@ -469,6 +469,7 @@ export async function readUsage(workspace) {
 	const { usage } = logPaths(workspace);
 	const byDay = {};
 	const byCycle = {};
+	const byHour = {};
 	const totals = { tokensInput: 0, tokensOutput: 0, tokensTotal: 0, runs: 0 };
 	try {
 		const raw = await readFile(usage, "utf8");
@@ -479,11 +480,14 @@ export async function readUsage(workspace) {
 				const r = JSON.parse(t);
 				const day = r.date || "unknown";
 				const cycle = String(r.cycle ?? 0);
+				const hour = (r.at || "").slice(0, 13) || "unknown";
 				byDay[day] = byDay[day] || { tokensInput: 0, tokensOutput: 0, tokensTotal: 0, runs: 0 };
 				byCycle[cycle] = byCycle[cycle] || { tokensInput: 0, tokensOutput: 0, tokensTotal: 0, runs: 0 };
+				byHour[hour] = byHour[hour] || { hour, tokensInput: 0, tokensOutput: 0, tokensTotal: 0, runs: 0 };
 				for (const key of ["tokensInput", "tokensOutput", "tokensTotal", "runs"]) {
 					byDay[day][key] += Number(r[key]) || 0;
 					byCycle[cycle][key] += Number(r[key]) || 0;
+					byHour[hour][key] += Number(r[key]) || 0;
 					totals[key] += Number(r[key]) || 0;
 				}
 			} catch {
@@ -493,7 +497,7 @@ export async function readUsage(workspace) {
 	} catch {
 		// none yet
 	}
-	return { byDay, byCycle, totals };
+	return { byDay, byCycle, byHour, totals };
 }
 
 /**

@@ -50,7 +50,7 @@ export default function App() {
           <>
             <SummaryPanel status={status.data} />
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
               <HealthPanel status={status.data} />
               <div className="space-y-6">
                 <Timeline events={events.data ?? []} loading={events.loading} />

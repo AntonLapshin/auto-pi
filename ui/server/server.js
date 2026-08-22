@@ -200,6 +200,11 @@ async function buildStatus(active) {
 				tokensTotal: v.tokensTotal,
 				runs: v.runs,
 			})).slice(-14),
+			byHour: Object.entries(usage.byHour || {}).map(([hour, v]) => ({
+				hour,
+				tokensTotal: v.tokensTotal,
+				runs: v.runs,
+			})).slice(-24),
 		},
 		health: healthSummary(health),
 		counts: {
@@ -297,6 +302,7 @@ const server = createServer(async (req, res) => {
 			const usage = await readUsage(active.workspace);
 			return sendJson(res, 200, {
 				byDay: Object.entries(usage.byDay || {}).map(([date, v]) => ({ date, ...v })),
+				byHour: Object.entries(usage.byHour || {}).map(([hour, v]) => ({ hour, ...v })),
 				byCycle: Object.entries(usage.byCycle || {}).map(([cycle, v]) => ({ cycle, ...v })),
 				totals: usage.totals,
 			});
