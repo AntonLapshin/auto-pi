@@ -25,7 +25,7 @@ export function Timeline({ events, loading, className = "" }: TimelineProps) {
             const style = eventStyle(e.type);
             return (
               <div key={e.id} className="flex items-start gap-3 border-l border-slate-800 py-1.5 pl-3">
-                <div className="w-14 shrink-0 whitespace-nowrap pt-0.5 pr-3 text-right font-mono text-[11px] text-slate-500">
+                <div className="shrink-0 whitespace-nowrap pt-0.5 text-right font-mono text-[11px] text-slate-500">
                   {fmtTime(e.at)}
                 </div>
                 <span className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${style.color}`}>
