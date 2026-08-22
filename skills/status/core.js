@@ -103,12 +103,13 @@ export async function buildStatus(opts = {}) {
 	const today = new Date().toISOString().slice(0, 10);
 	const todayUsage = usageLedger.byDay?.[today] || usageLedger.totals || { tokensTotal: 0 };
 	const costUsd = estimateCost(Number(todayUsage.tokensTotal), config);
+	const fmtLimit = (n) => (n > 0 ? n.toLocaleString() : "unlimited");
 
 	lines.push(`## Budget`);
 	lines.push(``);
-	lines.push(`- Tokens used today: ${String(Number(todayUsage.tokensTotal) || 0).toLocaleString()} / ${limits.maxTokensPerDay.toLocaleString()}`);
+	lines.push(`- Tokens used today: ${String(Number(todayUsage.tokensTotal) || 0).toLocaleString()} / ${fmtLimit(limits.maxTokensPerDay)}`);
 	lines.push(`- Estimated cost today: $${costUsd.toFixed(4)} / $${limits.maxCostPerDayUsd}`);
-	lines.push(`- Cycle budget: ${limits.maxTokensPerCycle.toLocaleString()} tokens/cycle`);
+	lines.push(`- Cycle budget: ${fmtLimit(limits.maxTokensPerCycle)} tokens/cycle`);
 	lines.push(``);
 
 	// Last persona run.

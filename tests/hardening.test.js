@@ -119,9 +119,22 @@ test("budgetLimits applies defaults", () => {
 	assert.equal(l.maxTokensPerDay, DEFAULT_MAX_TOKENS_PER_DAY);
 	assert.equal(l.maxTokensPerCycle, DEFAULT_MAX_TOKENS_PER_CYCLE);
 	assert.equal(l.maxConsecutiveFailures, DEFAULT_MAX_CONSECUTIVE_FAILURES);
-	assert.equal(l.contextMaxTokens, 150000);
-	assert.equal(l.maxPromptTokensPerPersona, 135000);
-	assert.equal(l.maxOutputTokensPerPersona, 8000);
+	// Defaults are unlimited (0).
+	assert.equal(l.contextMaxTokens, 0);
+	assert.equal(l.maxPromptTokensPerPersona, 0);
+	assert.equal(l.maxOutputTokensPerPersona, 0);
+});
+
+test("budgetLimits treats 0 as unlimited (preserves explicit 0)", () => {
+	const l = budgetLimits({
+		limits: { maxTokensPerDay: 0, maxTokensPerCycle: 0, maxPromptTokensPerPersona: 0, maxOutputTokensPerPersona: 0 },
+		pi: { contextMaxTokens: 0 },
+	});
+	assert.equal(l.maxTokensPerDay, 0);
+	assert.equal(l.maxTokensPerCycle, 0);
+	assert.equal(l.maxPromptTokensPerPersona, 0);
+	assert.equal(l.maxOutputTokensPerPersona, 0);
+	assert.equal(l.contextMaxTokens, 0);
 });
 
 test("budgetLimits reads config overrides", () => {
@@ -142,9 +155,18 @@ test("checkBudget flags day/cost overruns", () => {
 	assert.equal(checkBudget({ limits: { maxCostPerDayUsd: 5 } }, { tokensUsed: 0, costUsd: 6 }).exceeded, true);
 });
 
+test("checkBudget treats 0 limit as unlimited", () => {
+	assert.equal(checkBudget({ limits: { maxTokensPerDay: 0 } }, { tokensUsed: 1e9, costUsd: 0 }).exceeded, false);
+	assert.equal(checkBudget({ limits: { maxCostPerDayUsd: 0 } }, { tokensUsed: 0, costUsd: 1e9 }).exceeded, false);
+});
+
 test("checkCycleBudget flags per-cycle overrun", () => {
 	assert.equal(checkCycleBudget({ limits: { maxTokensPerCycle: 1000 } }, 500).exceeded, false);
 	assert.equal(checkCycleBudget({ limits: { maxTokensPerCycle: 1000 } }, 1500).exceeded, true);
+});
+
+test("checkCycleBudget treats 0 limit as unlimited", () => {
+	assert.equal(checkCycleBudget({ limits: { maxTokensPerCycle: 0 } }, 1e9).exceeded, false);
 });
 
 test("checkConsecutiveFailures flags repeated failures", () => {
@@ -155,8 +177,13 @@ test("checkConsecutiveFailures flags repeated failures", () => {
 });
 
 test("personaTokenFlags builds pi token-cap flags", () => {
-	const flags = personaTokenFlags({});
-	assert.deepEqual(flags, ["--max-context", "150000", "--max-prompt", "135000", "--max-output", "8000"]);
+	// Defaults are unlimited (0) — no flags emitted.
+	assert.deepEqual(personaTokenFlags({}), []);
+	// Explicit caps emit flags.
+	assert.deepEqual(
+		personaTokenFlags({ limits: { maxPromptTokensPerPersona: 135000, maxOutputTokensPerPersona: 8000 }, pi: { contextMaxTokens: 150000 } }),
+		["--max-context", "150000", "--max-prompt", "135000", "--max-output", "8000"]
+	);
 });
 
 // --- config validation ---
@@ -179,7 +206,7 @@ test("validateConfig rejects invalid values", () => {
 	const bad = {
 		project: { name: "App", repo: "app", owner: "octocat" },
 		loop: { intervalSeconds: 1 }, // < 5
-		limits: { maxTokensPerDay: 0 }, // < 1
+		limits: { maxTokensPerDay: -5 }, // < 0 (negative invalid; 0 is allowed = unlimited)
 		github: { repoVisibility: "sponsored" }, // invalid enum
 		stack: { framework: "vue" }, // not react
 		quality: { coreCoveragePercent: 150 }, // > 100
@@ -218,7 +245,7 @@ test("syncConfig preserves project identity while applying defaults", async () =
 	assert.equal(res.config.project.owner, "octocat");
 	assert.equal(res.config.custom.extra, "keep-me");
 	// Defaults applied (e.g. limits from the default config).
-	assert.ok(res.config.limits?.maxTokensPerDay, "default limits present after sync");
+	assert.ok(res.config.limits && "maxTokensPerDay" in res.config.limits, "default limits present after sync");
 	assert.ok(res.config.logging?.maxFileSizeMb, "default logging present after sync");
 	// The on-disk file was updated.
 	const onDisk = JSON.parse(await readFile(join(dir, ".pi", "config.json"), "utf8"));

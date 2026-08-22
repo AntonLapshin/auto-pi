@@ -18,14 +18,14 @@ line instead of crashing.
 
 | Key                         | Default | Meaning                                        |
 |-----------------------------|---------|------------------------------------------------|
-| `maxTokensPerCycle`         | 250000  | max tokens in one loop cycle                   |
-| `maxTokensPerDay`           | 750000  | max tokens in one day                          |
+| `maxTokensPerCycle`         | 0       | max tokens in one loop cycle; `0` = unlimited  |
+| `maxTokensPerDay`           | 0       | max tokens in one day; `0` = unlimited         |
 | `maxCostPerDayUsd`          | 20      | max estimated cost per day (USD)               |
-| `maxPromptTokensPerPersona` | 135000  | max prompt tokens a persona may consume        |
-| `maxOutputTokensPerPersona` | 8000    | max output tokens a persona may produce        |
+| `maxPromptTokensPerPersona` | 0       | max prompt tokens a persona may consume; `0` = unlimited |
+| `maxOutputTokensPerPersona` | 0       | max output tokens a persona may produce; `0` = unlimited |
 
-Plus `pi.contextMaxTokens` (default 150000) — the model context window the
-persona context packers must stay under.
+Plus `pi.contextMaxTokens` (default 0 — unlimited) — the model context window
+the persona context packers must stay under.
 
 ## Behavior
 
@@ -45,7 +45,8 @@ The persona runner (`extensions/loop/persona-runner.js`) passes
 `config.pi.contextMaxTokens`, `config.limits.maxPromptTokensPerPersona`, and
 `config.limits.maxOutputTokensPerPersona` to the `pi` CLI flags (`--max-context`,
 `--max-prompt`, `--max-output`) when the installed pi supports them, so the
-model is capped at the persona level as well as the loop level.
+model is capped at the persona level as well as the loop level. A value of `0`
+means the cap is disabled (unlimited) — no flag is emitted.
 
 Core logic lives in `skills/budget-guard/core.js` (plain JS, shared with the
 loop and tests).

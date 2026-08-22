@@ -77,8 +77,9 @@ export function validateConfig(config) {
 	const pi = config.pi || {};
 	if (pi.contextMaxTokens !== undefined) {
 		const n = Number(pi.contextMaxTokens);
-		if (!Number.isFinite(n) || n < 1000) {
-			errors.push("pi.contextMaxTokens must be an integer >= 1000");
+		// 0 = unlimited (no context cap).
+		if (!Number.isFinite(n) || n < 0) {
+			errors.push("pi.contextMaxTokens must be an integer >= 0 (0 = unlimited)");
 		}
 	}
 
@@ -96,12 +97,16 @@ export function validateConfig(config) {
 		errors.push("loop.stopOnBudgetExceeded must be a boolean");
 	}
 
-	// limits
+	// limits. Token/context caps accept 0 = unlimited (no cap); cost accepts >= 0.
 	const limits = config.limits || {};
 	for (const key of ["maxBatchIssues", "maxIssueAttempts", "maxTokensPerCycle", "maxTokensPerDay", "maxPromptTokensPerPersona", "maxOutputTokensPerPersona"]) {
 		if (limits[key] !== undefined) {
 			const n = Number(limits[key]);
-			if (!Number.isFinite(n) || n < 1) errors.push(`limits.${key} must be >= 1`);
+			// maxTokensPerCycle / maxTokensPerDay / maxPromptTokensPerPersona /
+			// maxOutputTokensPerPersona may be 0 to disable the cap (unlimited).
+			const allowZero = ["maxTokensPerCycle", "maxTokensPerDay", "maxPromptTokensPerPersona", "maxOutputTokensPerPersona"].includes(key);
+			const min = allowZero ? 0 : 1;
+			if (!Number.isFinite(n) || n < min) errors.push(`limits.${key} must be >= ${min}`);
 		}
 	}
 	if (limits.maxCostPerDayUsd !== undefined) {

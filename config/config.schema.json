@@ -24,7 +24,7 @@
       "properties": {
         "model": { "type": "string" },
         "provider": { "type": "string" },
-        "contextMaxTokens": { "type": "integer", "minimum": 1000, "default": 150000 },
+        "contextMaxTokens": { "type": "integer", "minimum": 0, "default": 0, "description": "Model context window. 0 = unlimited (no cap)." },
         "maxRetries": { "type": "integer", "minimum": 0, "default": 2, "description": "Retries (in addition to the first attempt) for a transient persona/LLM invocation failure (M13)." },
         "retryBaseDelayMs": { "type": "integer", "minimum": 0, "default": 5000, "description": "Base backoff delay (ms) between persona retries; doubles per retry (M13)." },
         "retryMaxDelayMs": { "type": "integer", "minimum": 0, "default": 30000, "description": "Maximum backoff delay (ms) between persona retries (M13)." }
@@ -45,11 +45,11 @@
       "properties": {
         "maxBatchIssues": { "type": "integer", "minimum": 1, "default": 3 },
         "maxIssueAttempts": { "type": "integer", "minimum": 1, "default": 3 },
-        "maxTokensPerCycle": { "type": "integer", "minimum": 1, "default": 250000 },
-        "maxTokensPerDay": { "type": "integer", "minimum": 1, "default": 750000 },
+        "maxTokensPerCycle": { "type": "integer", "minimum": 0, "default": 0, "description": "Max tokens per loop cycle. 0 = unlimited." },
+        "maxTokensPerDay": { "type": "integer", "minimum": 0, "default": 0, "description": "Max tokens per day. 0 = unlimited." },
         "maxCostPerDayUsd": { "type": "number", "minimum": 0, "default": 20 },
-        "maxPromptTokensPerPersona": { "type": "integer", "minimum": 1, "default": 135000 },
-        "maxOutputTokensPerPersona": { "type": "integer", "minimum": 1, "default": 8000 }
+        "maxPromptTokensPerPersona": { "type": "integer", "minimum": 0, "default": 0, "description": "Max prompt tokens per persona. 0 = unlimited." },
+        "maxOutputTokensPerPersona": { "type": "integer", "minimum": 0, "default": 0, "description": "Max output tokens per persona. 0 = unlimited." }
       }
     },
     "github": {

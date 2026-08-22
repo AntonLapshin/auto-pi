@@ -10,23 +10,23 @@
  * tests / node scripts.
  */
 
-/** Default per-cycle token budget (config.limits.maxTokensPerCycle). */
-export const DEFAULT_MAX_TOKENS_PER_CYCLE = 250000;
+/** Default per-cycle token budget (config.limits.maxTokensPerCycle). 0 = unlimited. */
+export const DEFAULT_MAX_TOKENS_PER_CYCLE = 0;
 
-/** Default per-day token budget (config.limits.maxTokensPerDay). */
-export const DEFAULT_MAX_TOKENS_PER_DAY = 750000;
+/** Default per-day token budget (config.limits.maxTokensPerDay). 0 = unlimited. */
+export const DEFAULT_MAX_TOKENS_PER_DAY = 0;
 
 /** Default per-day cost budget in USD (config.limits.maxCostPerDayUsd). */
 export const DEFAULT_MAX_COST_PER_DAY_USD = 20;
 
-/** Default model context window (config.pi.contextMaxTokens). */
-export const DEFAULT_CONTEXT_MAX_TOKENS = 150000;
+/** Default model context window (config.pi.contextMaxTokens). 0 = unlimited. */
+export const DEFAULT_CONTEXT_MAX_TOKENS = 0;
 
-/** Default max prompt tokens per persona (config.limits.maxPromptTokensPerPersona). */
-export const DEFAULT_MAX_PROMPT_TOKENS_PER_PERSONA = 135000;
+/** Default max prompt tokens per persona (config.limits.maxPromptTokensPerPersona). 0 = unlimited. */
+export const DEFAULT_MAX_PROMPT_TOKENS_PER_PERSONA = 0;
 
-/** Default max output tokens per persona (config.limits.maxOutputTokensPerPersona). */
-export const DEFAULT_MAX_OUTPUT_TOKENS_PER_PERSONA = 8000;
+/** Default max output tokens per persona (config.limits.maxOutputTokensPerPersona). 0 = unlimited. */
+export const DEFAULT_MAX_OUTPUT_TOKENS_PER_PERSONA = 0;
 
 /** Default consecutive-failure limit (config.loop.maxConsecutiveFailures). */
 export const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
@@ -49,17 +49,21 @@ export function budgetLimits(config = {}) {
 	const limits = config?.limits || {};
 	const loop = config?.loop || {};
 	const pi = config?.pi || {};
-	const num = (v, def) => {
+	// `0` is a valid, explicit value meaning "unlimited / no cap" for the
+	// token/context limits. Absent or non-numeric values fall back to the
+	// defaults (which themselves are now 0 = unlimited by default).
+	const num = (v, def, { allowZero = false } = {}) => {
 		const n = Number(v);
-		return Number.isFinite(n) && n > 0 ? n : def;
+		if (Number.isFinite(n) && (allowZero ? n >= 0 : n > 0)) return n;
+		return def;
 	};
 	return {
-		maxTokensPerCycle: num(limits.maxTokensPerCycle, DEFAULT_MAX_TOKENS_PER_CYCLE),
-		maxTokensPerDay: num(limits.maxTokensPerDay, DEFAULT_MAX_TOKENS_PER_DAY),
-		maxCostPerDayUsd: num(limits.maxCostPerDayUsd, DEFAULT_MAX_COST_PER_DAY_USD),
-		contextMaxTokens: num(pi.contextMaxTokens, DEFAULT_CONTEXT_MAX_TOKENS),
-		maxPromptTokensPerPersona: num(limits.maxPromptTokensPerPersona, DEFAULT_MAX_PROMPT_TOKENS_PER_PERSONA),
-		maxOutputTokensPerPersona: num(limits.maxOutputTokensPerPersona, DEFAULT_MAX_OUTPUT_TOKENS_PER_PERSONA),
+		maxTokensPerCycle: num(limits.maxTokensPerCycle, DEFAULT_MAX_TOKENS_PER_CYCLE, { allowZero: true }),
+		maxTokensPerDay: num(limits.maxTokensPerDay, DEFAULT_MAX_TOKENS_PER_DAY, { allowZero: true }),
+		maxCostPerDayUsd: num(limits.maxCostPerDayUsd, DEFAULT_MAX_COST_PER_DAY_USD, { allowZero: true }),
+		contextMaxTokens: num(pi.contextMaxTokens, DEFAULT_CONTEXT_MAX_TOKENS, { allowZero: true }),
+		maxPromptTokensPerPersona: num(limits.maxPromptTokensPerPersona, DEFAULT_MAX_PROMPT_TOKENS_PER_PERSONA, { allowZero: true }),
+		maxOutputTokensPerPersona: num(limits.maxOutputTokensPerPersona, DEFAULT_MAX_OUTPUT_TOKENS_PER_PERSONA, { allowZero: true }),
 		maxConsecutiveFailures: num(loop.maxConsecutiveFailures, DEFAULT_MAX_CONSECUTIVE_FAILURES),
 	};
 }
@@ -78,13 +82,14 @@ export function checkBudget(config = {}, usage = {}) {
 	const tokensUsed = Number(usage.tokensUsed) || 0;
 	const costUsd = Number(usage.costUsd) || 0;
 
-	if (tokensUsed >= limits.maxTokensPerDay) {
+	// A maxTokensPerDay of 0 means the per-day token cap is disabled (unlimited).
+	if (limits.maxTokensPerDay > 0 && tokensUsed >= limits.maxTokensPerDay) {
 		return {
 			exceeded: true,
 			reason: `token budget exceeded (${tokensUsed} >= ${limits.maxTokensPerDay} tokens/day)`,
 		};
 	}
-	if (costUsd >= limits.maxCostPerDayUsd) {
+	if (limits.maxCostPerDayUsd > 0 && costUsd >= limits.maxCostPerDayUsd) {
 		return {
 			exceeded: true,
 			reason: `cost budget exceeded ($${costUsd.toFixed(2)} >= $${limits.maxCostPerDayUsd}/day)`,
@@ -103,7 +108,8 @@ export function checkBudget(config = {}, usage = {}) {
 export function checkCycleBudget(config = {}, cycleTokens = 0) {
 	const limits = budgetLimits(config);
 	const tokens = Number(cycleTokens) || 0;
-	if (tokens >= limits.maxTokensPerCycle) {
+	// A maxTokensPerCycle of 0 means the per-cycle cap is disabled (unlimited).
+	if (limits.maxTokensPerCycle > 0 && tokens >= limits.maxTokensPerCycle) {
 		return {
 			exceeded: true,
 			reason: `cycle token budget exceeded (${tokens} >= ${limits.maxTokensPerCycle} tokens/cycle)`,

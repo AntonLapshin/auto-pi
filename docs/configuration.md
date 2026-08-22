@@ -31,7 +31,7 @@ into an existing project while preserving project-specific values.
 |-----|------|---------|---------|
 | `model` | string | `""` | Pi model id |
 | `provider` | string | `""` | Pi provider |
-| `contextMaxTokens` | int | `150000` | model context window (budget guard) |
+| `contextMaxTokens` | int | `0` | model context window; `0` = unlimited (budget guard) |
 
 ### `loop`
 
@@ -47,11 +47,11 @@ into an existing project while preserving project-specific values.
 |-----|------|---------|---------|
 | `maxBatchIssues` | int | `3` | max issues the PM creates per batch |
 | `maxIssueAttempts` | int | `3` | cap repeated attempts per issue; beyond → `pi:blocked` + `pi:needs-human` |
-| `maxTokensPerCycle` | int | `250000` | max tokens per loop cycle |
-| `maxTokensPerDay` | int | `750000` | max tokens per day |
+| `maxTokensPerCycle` | int | `0` | max tokens per loop cycle; `0` = unlimited |
+| `maxTokensPerDay` | int | `0` | max tokens per day; `0` = unlimited |
 | `maxCostPerDayUsd` | number | `20` | max estimated cost per day (USD) |
-| `maxPromptTokensPerPersona` | int | `135000` | max prompt tokens per persona |
-| `maxOutputTokensPerPersona` | int | `8000` | max output tokens per persona |
+| `maxPromptTokensPerPersona` | int | `0` | max prompt tokens per persona; `0` = unlimited |
+| `maxOutputTokensPerPersona` | int | `0` | max output tokens per persona; `0` = unlimited |
 
 ### `github`
 

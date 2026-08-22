@@ -11,7 +11,7 @@
   "pi": {
     "model": "",
     "provider": "",
-    "contextMaxTokens": 150000,
+    "contextMaxTokens": 0,
     "maxRetries": 2,
     "retryBaseDelayMs": 5000,
     "retryMaxDelayMs": 30000
@@ -24,11 +24,11 @@
   "limits": {
     "maxBatchIssues": 3,
     "maxIssueAttempts": 3,
-    "maxTokensPerCycle": 250000,
-    "maxTokensPerDay": 750000,
+    "maxTokensPerCycle": 0,
+    "maxTokensPerDay": 0,
     "maxCostPerDayUsd": 20,
-    "maxPromptTokensPerPersona": 135000,
-    "maxOutputTokensPerPersona": 8000
+    "maxPromptTokensPerPersona": 0,
+    "maxOutputTokensPerPersona": 0
   },
   "github": {
     "autoCreateRepo": true,
