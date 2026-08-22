@@ -18,9 +18,11 @@ Spin up a brand-new project in one command:
 /loop-seed Build a markdown notes app with tags and search
 ```
 
-`/loop-seed` walks you through engaging with the project: it asks a few clarifying
-questions (or you can pass `--yes` to proceed on assumptions), derives and creates
-a GitHub repo, scaffolds a React/Tailwind/TypeScript project with CI and GitHub
+`/loop-seed` walks you through engaging with the project: it asks for an explicit
+project name (the only fixed question), then an **agent evaluates your idea and asks
+the follow-up questions that resolve its ambiguity** (or you can pick "use
+assumptions" / pass `--yes` to proceed automatically), derives and creates a
+GitHub repo, scaffolds a React/Tailwind/TypeScript project with CI and GitHub
 Pages deployment, copies the project config, and starts the autonomous loop. From
 there the PM plans issues, the Engineer implements and tests them, and the Review
 Engineer verifies and approves — all without further input.

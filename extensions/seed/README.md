@@ -4,19 +4,20 @@ Implements the `/loop-seed` initiation flow (M2).
 
 - `core.js` — shared orchestration (also imported by `scripts/seed.js`): enforces
   **one active project per machine** (stopping the currently-active project's loop
-  first so the new seed becomes active), runs clarification, derives & checks repo
-  names (with `{name}-app` / `{name}-{shortid}` fallbacks), creates the GitHub
-  repo via `gh repo create`, clones it into the workspace, **scaffolds the
+  first so the new seed becomes active), runs *agentic* clarification, derives &
+  checks repo names (with `{name}-app` / `{name}-{shortid}` fallbacks), creates the
+  GitHub repo via `gh repo create`, clones it into the workspace, **scaffolds the
   React/Tailwind/TS project** (M3), **copies the project config** into
   `.pi/config.json` + generates the local-secrets scaffold (M5), writes
   `.pi/state/initiation.json`, and records `~/.auto-pi/current-project.json`.
-- `config.js` — project config copy (M5): loads `config/config.default.json`,
-  fills the `project` section (name, repo, owner, ownerEmail, demo URL, default
-  branch), and writes `{project}/.pi/config.json` (committed), plus the
-  git-ignored local-secrets scaffold — `.pi/local.example.json` (Telegram
-  env-var pattern) and `.pi/config.schema.json` (relative schema reference).
-- `clarify.js` — builds 3–6 high-value questions from the project description and
-  applies answers (with a "use assumptions" escape hatch). UI-agnostic.
+- `agentic-clarify.js` — (new, primary path) runs a fresh `pi -p` batch session that
+  evaluates the specific idea and emits the follow-up questions that resolve its
+  ambiguity, then parses/validates them into the canonical question shape. Falls
+  back to `clarify.js`'s generic questions when the agent is unavailable. The
+  **only** hardcoded question in `/loop-seed` is the project name (command layer).
+- `clarify.js` — minimal idea-agnostic fallback question set used only when the
+  agent cannot run, plus `applyAnswers` (with a "use assumptions" escape hatch).
+  UI-agnostic.
 - `repo-name.js` — derives a GitHub repo slug from the description, checks
   existence via `gh`, and generates fallback names. Handles reserved words.
 - `constants.js` — shared paths (`~/.auto-pi`, `current-project.json`, workspaces)

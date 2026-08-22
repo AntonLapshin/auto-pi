@@ -26,6 +26,7 @@ import {
 	readConfig,
 	readActiveProject,
 	runLoopCycle,
+	needsHuman,
 	writeStopFile,
 	removeStopFile,
 	waitForLoopExit,
@@ -194,6 +195,47 @@ test("dispatch: otherwise → PM (plan next slice)", () => {
 	});
 	assert.equal(d.decision, DECISION.PM);
 	assert.equal(d.persona, PERSONAS.PM);
+});
+
+test("dispatch: needs-human + blocked ready issue → WAIT on human", () => {
+	// A human decision is required when an issue is labelled `pi:needs-human`
+	// (with or without `pi:blocked`).
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: true,
+		state: state([issue(1, ["pi:ready", "pi:blocked", "pi:needs-human"])]),
+	});
+	assert.equal(d.decision, DECISION.WAIT);
+});
+
+test("dispatch: pi:needs-pm work routed to PM before pi:ready Engineer (scope-too-large split)", () => {
+	// A scope-too-large issue the Engineer labelled `pi:blocked` + `pi:needs-pm`
+	// (engineer.md Step 7) must go to the PM to split — not be re-dispatched to
+	// the Engineer via its left-over `pi:ready` label — and must NOT stall on a
+	// human (needsHuman is false for blocked+needs-pm).
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([
+			issue(1, ["pi:ready", "pi:blocked", "pi:needs-pm"]),
+			issue(2, ["pi:ready"]),
+		]),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+	assert.match(d.reason, /#1/);
+});
+
+test("dispatch: pi:pm-note work still routed to PM before pi:ready Engineer", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(1, ["pi:ready", "pi:pm-note"]), issue(2, ["pi:ready"])]),
+	});
+	assert.equal(d.decision, DECISION.PM);
 });
 
 test("dispatch order: changes-requested beats ready issue", () => {
@@ -584,6 +626,20 @@ test("runLoopCycle stops on budget when stopOnBudgetExceeded=true (default, M13)
 	});
 	assert.equal(result.action, "stopped");
 	assert.match(result.reason, /budget/);
+});
+
+	test("needsHuman: pi:blocked + pi:needs-pm is NOT a human wait (scope-too-large → PM split)", async () => {
+	// The Engineer labels a too-large issue `pi:blocked` + `pi:needs-pm` for the
+	// PM to split (engineer.md Step 7). That needs a PM pass, not a human — so
+	// needsHuman must be false, letting the dispatcher route to PM.
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-needshuman-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	// No initiation.json → the fallback path is inert; only labels drive this.
+	const s = (labels) => ({ issues: [issue(1, labels)], prs: [] });
+	assert.equal(await needsHuman(dir, s(["pi:ready", "pi:blocked", "pi:needs-pm"])), false);
+	assert.equal(await needsHuman(dir, s(["pi:needs-human"])), true);
+	assert.equal(await needsHuman(dir, s(["pi:blocked"])), true);
+	assert.equal(await needsHuman(dir, s(["pi:ready"])), false);
 });
 
 // --- /loop-restart: stop, wait, re-arm, start ---

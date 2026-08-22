@@ -48,6 +48,12 @@ Examples:
      (`gh issue edit {n} --body-file -` with the updated body).
    - **Remove the PM labels** `pi:pm-note` and `pi:needs-pm` from that issue
      (`gh issue edit {n} --remove-label pi:pm-note --remove-label pi:needs-pm`).
+   - **Also remove `pi:blocked`** from that issue (`--remove-label pi:blocked`)
+     once the note is resolved — otherwise the stale `pi:blocked` would make the
+     loop stall on a human (per plan.md §15 step 3). Closing a too-large issue
+     after splitting it into smaller `pi:ready` sub-issues automatically clears
+     its labels, so closing is the cleanest route; if you instead keep the
+     original issue open, drop `pi:blocked` (and add `pi:ready` to the sub-issues).
    - If the issue is now ready for an Engineer, add `pi:ready`.
 3. If there were unresolved PM notes, handle them and **end your turn** (do not
    create new issues in the same turn — let the loop re-dispatch).

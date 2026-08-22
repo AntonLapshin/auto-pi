@@ -579,10 +579,24 @@ export async function switchProject(target, io = {}, opts = {}) {
  * Check whether the project's initiation/state requires a human decision.
  * Looks for a `pi:needs-human` / `pi:blocked` open issue (plan.md §15 step 3).
  * Also honours an explicit needs-human marker in initiation.json.
+ *
+ * The `pi:blocked` label ALONE is ambiguous and must NOT by itself stop the
+ * loop on a human:
+ *
+ *   - `pi:blocked` + `pi:needs-human`  → human decision required (the Pages
+ *     deploy and attempt-limit paths always pair these, so this is the signal).
+ *   - `pi:blocked` + `pi:needs-pm`     → a PM job, NOT a human job: the Engineer
+ *     labels an issue this way (engineer.md Step 7, scope-too-large) so the PM
+ *     can split/re-plan it. The loop must dispatch the PM, not wait on a human.
+ *   - `pi:blocked` alone               → treated as human-required (conservative
+ *     fallback; no harness code path currently applies it bare).
  */
 export async function needsHuman(workspace, state) {
-	if (state?.issues?.some((i) => i.labels.includes("pi:needs-human") || i.labels.includes("pi:blocked"))) {
-		return true;
+	for (const i of state?.issues || []) {
+		if (i.labels.includes("pi:needs-human")) return true;
+		// `pi:blocked` only warrants a human when it is NOT routed to the PM
+		// (i.e. not accompanied by `pi:needs-pm`).
+		if (i.labels.includes("pi:blocked") && !i.labels.includes("pi:needs-pm")) return true;
 	}
 	// Fallback: initiation.json may carry a blocked/needs-human status.
 	try {

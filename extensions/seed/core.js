@@ -34,7 +34,8 @@ import {
 	INITIATION_STATE_VERSION,
 	PROJECT_STATUS,
 } from "./constants.js";
-import { buildQuestions, applyAnswers } from "./clarify.js";
+import { applyAnswers } from "./clarify.js";
+import { agenticClarify } from "./agentic-clarify.js";
 import {
 	deriveRepoName,
 	alternativeNames,
@@ -268,7 +269,10 @@ export async function commitAndPushInitial(workspace, repoFullName, branch, opts
  *
  * @param {string} description the text after `/loop-seed`
  * @param {object} io          injected UI handlers (see module docblock)
- * @param {object} [opts]      { projectName?, owner?, githubConfig?, reuseExisting?, commitInitial } for tests/overrides
+ * @param {object} [opts]      { projectName?, owner?, githubConfig?, config?, env?,
+ *                              execute?, reuseExisting?, commitInitial } for tests/overrides
+ *                              (config/env/execute are forwarded to the agentic
+ *                              clarifier — model selection and a test executor).
  * @returns {Promise<{ ok: boolean, message: string, state?: object }>}
  */
 export async function runSeed(description, io = {}, opts = {}) {
@@ -321,9 +325,25 @@ export async function runSeed(description, io = {}, opts = {}) {
 	}
 	notify(`GitHub account: ${owner}`);
 
-	// 3. Clarification (3–6 questions; "use assumptions" escape hatch).
+	// 3. Clarification: an agent evaluates the idea and generates the relevant
+	// follow-up questions (the only hardcoded question — the project name — is
+	// already captured by the caller). Falls back to minimal generic questions
+	// when the agent cannot run or its output is unusable. "use assumptions"
+	// remains the escape hatch for fully-automatic runs.
 	const githubCfg = opts.githubConfig || (await loadGithubConfig());
-	const questions = buildQuestions(descriptionText);
+	const clarifyRes = await agenticClarify({
+		description: descriptionText,
+		projectName,
+		config: opts.config,
+		env: opts.env,
+		execute: opts.execute,
+	});
+	const questions = clarifyRes.questions;
+	if (clarifyRes.questionSource === "agent") {
+		notify(`Clarification questions generated for your idea (${questions.length} questions).`);
+	} else {
+		notify("Using generic clarification questions (agent unavailable).");
+	}
 	let clarification;
 	if (io.askQuestions) {
 		const answer = await io.askQuestions(questions);

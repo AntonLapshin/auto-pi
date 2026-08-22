@@ -9,6 +9,10 @@
  *   npm run seed -- "Build a markdown notes app"      # interactive prompts (incl. project name)
  *   npm run seed -- "Build a markdown notes app" --yes # non-interactive (assumptions)
  *
+ * Clarification is agentic: an agent evaluates the description and generates the
+ * follow-up questions (the project name is the only hardcoded question). When
+ * the agent is unavailable it falls back to generic questions.
+ *
  * Flags:
  *   --yes / --assume   skip confirmation & clarification, use assumptions
  *   --help             show usage
@@ -60,7 +64,7 @@ async function run(description, projectName, assume) {
 		notify: (text) => process.stdout.write(`[seed] ${text}\n`),
 		askQuestions: async (questions) => {
 			if (assume) return { usedAssumptions: true };
-			process.stdout.write("\n--- Clarification (answer or press Enter for the default; type 'use assumptions' to skip) ---\n");
+			process.stdout.write("\n--- Clarification (generated for your idea by an agent; answer or press Enter for the default; type 'use assumptions' to skip) ---\n");
 			const answers = {};
 			let usedAssumptions = false;
 			for (const q of questions) {
@@ -102,8 +106,9 @@ async function main() {
 	const assume = argv.includes("--yes") || argv.includes("--assume");
 	const descriptionArg = argv.find((a) => !a.startsWith("--")) || "";
 	const description = descriptionArg || (assume ? "" : await ask("Project description", undefined));
-	// Ask for the project name explicitly (unless --yes / --assume).
-	const projectName = assume ? "" : await ask("Project name (used for the repo slug)", description || "my-project");
+	// Ask for the project name explicitly (the single hardcoded question), unless
+	// --yes / --assume skips prompts.
+	const projectName = assume ? "" : await ask("Project name (the only fixed question — used for the repo slug)", description || "my-project");
 	await run(description, projectName, assume);
 }
 

@@ -18,9 +18,10 @@
  *
  * No open PRs → the previous PR is merged/closed, the Engineer may pick the
  * next task; PM spawns only after all PRs are merged and no issues remain:
- *   5. open ready issues                       → Engineer
- *   6. open issues remain (unplanned/PM notes) → PM
- *   7. no open PRs and no open issues          → PM (finalize) — unless the
+ *   5. unresolved PM work (`pi:needs-pm`/`pi:pm-note`) → PM (split/unblock)
+ *   6. open ready issues                       → Engineer
+ *   7. open issues remain (unplanned/PM notes) → PM
+ *   8. no open PRs and no open issues          → PM (finalize) — unless the
  *      project is already marked done (completed.json), in which case → WAIT
  *      so the loop polls GitHub at zero cost and only resumes work when a new
  *      issue/PR appears (deterministic, no LLM call when nothing to do).
@@ -202,7 +203,25 @@ export function dispatch(inputs) {
 	// next task; PM spawns only once all PRs are merged and no issues remain.
 	// ------------------------------------------------------------------
 
-	// 5. Open ready issues → Engineer (implements one; Engineer's judgement
+	// 5. Unresolved PM work → PM first. A `pi:needs-pm` / `pi:pm-note` issue
+	//    (typically a scope-too-large issue the Engineer labelled for the PM to
+	//    split, engineer.md Step 7) must be handled by the PM before the Engineer
+	//    picks up ready work — otherwise the left-over `pi:ready` on the same
+	//    issue re-dispatches the Engineer onto the oversized issue, which stalls
+	//    again. (needsHuman() already exempts `pi:blocked`+`pi:needs-pm` from the
+	//    human wait, so this is the counterpart that gets the PM to actually split.)
+	const pmWork = issues.filter((i) =>
+		i.labels.includes(LABELS.PM_NOTE) || i.labels.includes(LABELS.NEEDS_PM),
+	);
+	if (pmWork.length > 0) {
+		return {
+			decision: DECISION.PM,
+			persona: PERSONAS.PM,
+			reason: `issue(s) #${pmWork.map((i) => i.number).join(", #")} need PM attention (split/unblock)`,
+		};
+	}
+
+	// 6. Open ready issues → Engineer (implements one; Engineer's judgement
 	//    decides which task to pick among the ready issues).
 	if (issueWithLabel(LABELS.READY)) {
 		return {
@@ -212,7 +231,7 @@ export function dispatch(inputs) {
 		};
 	}
 
-	// 6. Open issues remain (unplanned / unresolved PM notes) → PM, so the
+	// 7. Open issues remain (unplanned / unresolved PM notes) → PM, so the
 	//    work can be split/planned into `pi:ready` issues the Engineer can pick
 	//    up next.
 	if (issues.length > 0) {

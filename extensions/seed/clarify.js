@@ -1,9 +1,17 @@
 /**
- * Clarification for the auto-pi `/loop-seed` flow (M2).
+ * Clarification support for the auto-pi `/loop-seed` flow (M2).
  *
- * Turns a one-line project description into 3–6 high-value clarifying questions
- * whose answers shape the scaffold, and supports a "use assumptions" escape
- * hatch so the flow can proceed automatically without human input.
+ * The primary path is *agentic*: `extensions/seed/agentic-clarify.js` runs a
+ * fresh Pi persona that evaluates the specific project idea and generates the
+ * follow-up questions that resolve its ambiguity. This module provides:
+ *
+ *   - `buildQuestions` — a minimal, idea-agnostic fallback question set used only
+ *     when the agent cannot be run or its output is unusable (offline / non-
+ *     interactive / LLM failure). It contains NO hardcoded topic questions; the
+ *     only question /loop-seed always asks (the project name) lives in the
+ *     command layer, not here.
+ *   - `applyAnswers` — turns the question set + answers into the `clarification`
+ *     record stored in initiation.json, with a "use assumptions" escape hatch.
  *
  * The module is UI-agnostic: it only decides *what* to ask. Asking is the
  * caller's job (the interactive `/loop-seed` command uses `ctx.ui`, the CLI fallback
@@ -24,112 +32,43 @@
  */
 
 /**
- * Build the question set for a project description.
- *
- * Questions are derived from what the description tells us (or fails to tell
- * us). Common gaps: target audience/platform, CLI vs GUI, persistence needs,
- * auth, deployment, and whether scaffolding should stay minimal.
+ * Build the minimal fallback question set, used only when the agentic
+ * clarifier produced nothing usable. These are deliberately idea-agnostic —
+ * they never assume a topic, and they are few, so they never dominate a real
+ * agent-generated set. The project name is not asked here: it is the command
+ * layer's single hardcoded question.
  *
  * @param {string} description the raw `/loop-seed <description>` argument
- * @returns {Question[]} 3–6 questions
+ * @param {string} [projectName] the explicit project name, when provided (for nicer wording)
+ * @returns {Question[]} 3–4 generic questions
  */
-export function buildQuestions(description) {
-	const text = String(description ?? "").trim().toLowerCase();
-	const questions = [];
+export function buildQuestions(description, projectName) {
+	const name = () => {
+		const explicit = String(projectName ?? "").trim();
+		if (explicit) return explicit;
+		const text = String(description ?? "").trim();
+		return text || "the project";
+	};
 
-	// 1. Shape / interface — almost always ambiguous from a single sentence.
-	if (/web|app|ui|cli|site|dashboard|tool/i.test(text)) {
-		questions.push({
+	// Guarantee 3 minimum, all idea-agnostic.
+	return [
+		{
 			id: "interface",
-			prompt: "What is the primary interface for the project?",
+			prompt: "How should users primarily interact with the project?",
 			choices: ["Web app (browser)", "CLI tool", "Library / API", "Desktop"],
 			assumption: "Web app (browser)",
-		});
-	} else {
-		questions.push({
-			id: "interface",
-			prompt: "How should users primarily interact with this project?",
-			choices: ["Web app (browser)", "CLI tool", "Library / API", "Desktop"],
-			assumption: "Web app (browser)",
-		});
-	}
-
-	// 2. Persistence — storage is a recurring requirement.
-	if (/note|markdown|data|store|save|database|list|track|record/i.test(text)) {
-		questions.push({
-			id: "persistence",
-			prompt: "Where should data be stored / persisted?",
-			choices: ["Local (browser/device)", "Files on disk", "Server / cloud DB", "None yet"],
-			assumption: "Files on disk",
-		});
-	} else {
-		questions.push({
-			id: "persistence",
-			prompt: "Does the project need to persist any data between sessions?",
-			choices: ["Yes — local storage", "Yes — server storage", "No"],
-			assumption: "Yes — local storage",
-		});
-	}
-
-	// 3. Users / auth — only relevant if it has users or a server.
-	if (/note|app|site|dashboard|team|user|account|auth|login/i.test(text)) {
-		questions.push({
-			id: "auth",
-			prompt: "Does the project need user accounts or authentication?",
-			choices: ["No — single user / public", "Yes — simple auth", "Yes — full user accounts"],
-			assumption: "No — single user / public",
-		});
-	} else if (/cli|library|api/i.test(text)) {
-		questions.push({
-			id: "auth",
-			prompt: "Does the project need authentication (API keys, tokens)?",
-			choices: ["No", "Yes — API tokens"],
-			assumption: "No",
-		});
-	}
-
-	// 4. Scope — keep it small enough for a single affordable slice.
-	if (/note|todo|list|simple|basic/i.test(text)) {
-		questions.push({
+		},
+		{
 			id: "scope",
-			prompt: "What scope should the first version target?",
-			choices: ["Minimal viable slice", "Full feature set"],
-			assumption: "Minimal viable slice",
-		});
-	}
-
-	// 5. Deployment target (harness ships to GitHub Pages by default; clarify early).
-	if (/web|app|site|dashboard|demo/i.test(text) && !/api|library|cli/i.test(text)) {
-		questions.push({
-			id: "deploy",
-			prompt: "Should the project be deployable as a live demo (GitHub Pages)?",
-			choices: ["Yes", "No"],
-			assumption: "Yes",
-		});
-	}
-
-	// 6. Language details — only when ambiguous (mostly web).
-	if (/app|web|site|dashboard|tool/i.test(text)) {
-		questions.push({
-			id: "language",
-			prompt: "Any language or framework preference?",
-			choices: ["No preference (use default React + TypeScript)", "Prefer something else (describe in answer)"],
-			assumption: "No preference (use default React + TypeScript)",
-		});
-	}
-
-	// Guarantee 3 minimum.
-	while (questions.length < 3) {
-		questions.push({
-			id: `extra-${questions.length + 1}`,
-			prompt: `Any other requirement or constraint for "${String(description ?? "").trim() || "the project"}"?`,
-			choices: ["None", "Protocol / dependencies / team size constraints"],
-			assumption: "None",
-		});
-	}
-
-	// Cap at 6.
-	return questions.slice(0, 6);
+			prompt: `What should the first version of "${name()}" actually do?`,
+			assumption: "A minimal, focused slice",
+		},
+		{
+			id: "constraints",
+			prompt: `Any constraints, preferences, or requirements for "${name()}"? (framework, integrations, audience, deployment…)`,
+			assumption: "None — use sensible defaults",
+		},
+	];
 }
 
 /**
