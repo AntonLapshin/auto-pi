@@ -345,7 +345,7 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config, en
 	const args = [
 		"-p",
 		"--no-session",
-		"--mode", "text",
+		"--mode", "json",
 		// Never auto-fetch URLs: the context files contain live links (repo/demo/
 		// changelog URLs) and pi's model can decide to `browse`/fetch them, which
 		// opens a blocked network fetch to an arbitrary host and hangs the sole
@@ -410,7 +410,15 @@ export function buildChildEnv({ config, env } = {}) {
  * stdin is closed (`ignore`) so `pi` stays in batch mode and never reads the
  * shared tty; stdout/stderr are piped and resolved as promises on exit.
  *
- * @returns {Promise<{ exitCode: number, stdout: string, stderr: string }>}
+ * The persona is run in `--mode json` so pi emits its real, provider-reported
+ * token usage (input/output/cache/total + cost) in the event stream. The raw
+ * JSON events are parsed here: the assistant's text is reconstructed into
+ * `stdout` (so the rest of the pipeline — stdout.txt, git/gh command parsing —
+ * keeps working exactly as it did in text mode) and the cumulative usage is
+ * attached as `tokens`. `parseTokenUsage` remains as a fallback for callers
+ * that do not go through pi's JSON mode (e.g. tests that inject fake output).
+ *
+ * @returns {Promise<{ exitCode: number, stdout: string, stderr: string, tokens?: object }>}
  */
 export async function executePi(args, childEnv, workspace) {
 	const { spawn } = await import("node:child_process");
@@ -434,9 +442,129 @@ export async function executePi(args, childEnv, workspace) {
 			resolve({ exitCode: 1, stdout, stderr: String(err?.message || err) });
 		});
 		child.on("close", (code) => {
-			resolve({ exitCode: code ?? 1, stdout, stderr });
+			resolve({
+				exitCode: code ?? 1,
+				// If the invocation used pi's JSON mode, reconstruct the plain-text
+				// response and extract the provider-reported token usage. Otherwise
+				// (non-JSON / error output) pass stdout through untouched.
+				...parseJsonModeOutput(stdout),
+				stderr,
+			});
 		});
 	});
+}
+
+/**
+ * Parse a pi `--mode json` event stream into a plain-text response and the
+ * cumulative provider-reported token usage.
+ *
+ * Each line is a JSON event. Assistant messages carry a `usage` object
+ * (`{ input, output, cacheRead, cacheWrite, totalTokens, cost }`); we sum it
+ * across every assistant `message_end`/`agent_end` message to get the total for
+ * the run (multi-turn/tool-use sessions emit one message per turn). The final
+ * assistant text content is reconstructed so downstream parsers (git/gh
+ * command extraction, run-dir stdout.txt) see the same output as text mode.
+ *
+ * When the stream is not JSON (e.g. an error banner or a stub), returns the
+ * input unchanged with no tokens so callers fall back to `parseTokenUsage`.
+ *
+ * @param {string} raw  raw stdout from `pi --mode json`
+ * @returns {{ stdout: string, tokens?: { tokensInput, tokensOutput, tokensTotal, tokensCacheRead, tokensCacheWrite, costUsd } }}
+ */
+export function parseJsonModeOutput(raw) {
+	const text = String(raw || "");
+	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+	if (!lines.length) return { stdout: text };
+
+	// Only treat it as a JSON stream if the first line parses as a pi session
+	// header / event object. Otherwise return the raw text untouched.
+	let first;
+	try {
+		first = JSON.parse(lines[0]);
+	} catch {
+		return { stdout: text };
+	}
+	if (!first || typeof first !== "object" || !first.type) {
+		return { stdout: text };
+	}
+
+	const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 };
+	let textParts = [];
+	let sawUsage = false;
+
+	const accumulate = (u) => {
+		if (!u || typeof u !== "object") return;
+		sawUsage = true;
+		usage.input += Number(u.input) || 0;
+		usage.output += Number(u.output) || 0;
+		usage.cacheRead += Number(u.cacheRead) || 0;
+		usage.cacheWrite += Number(u.cacheWrite) || 0;
+		usage.totalTokens += Number(u.totalTokens) || 0;
+		usage.cost += Number(u.cost?.total) || 0;
+	};
+	const addText = (msg) => {
+		for (const c of msg?.content || []) {
+			if (c?.type === "text" && c.text) textParts.push(c.text);
+		}
+	};
+
+	// Process the authoritative per-message events. `message_end` is emitted
+	// once per assistant message and carries the complete message (usage + text).
+	// `agent_end.messages` repeats the SAME messages, so we must NOT also walk it
+	// or we would double/triple-count usage and text (message_end + turn_end +
+	// agent_end all reference the same assistant message).
+	let sawAssistant = false;
+	for (const line of lines) {
+		let ev;
+		try {
+			ev = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (!ev || typeof ev !== "object") continue;
+		if (ev.type === "message_end" && ev.message?.role === "assistant") {
+			sawAssistant = true;
+			accumulate(ev.message.usage);
+			addText(ev.message);
+		}
+	}
+
+	// Fallback: if no assistant `message_end` events were seen (e.g. a provider
+	// that only reports usage at the very end, or a stream that only emits
+	// `agent_end`), walk `agent_end.messages` once.
+	if (!sawAssistant) {
+		for (const line of lines) {
+			let ev;
+			try {
+				ev = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (ev?.type === "agent_end" && Array.isArray(ev.messages)) {
+				for (const m of ev.messages) {
+					if (m?.role === "assistant") {
+						accumulate(m.usage);
+						addText(m);
+					}
+				}
+			}
+		}
+	}
+
+	const stdout = textParts.join("\n").trim() + (textParts.length ? "\n" : "");
+	if (!sawUsage) return { stdout: stdout || text };
+
+	return {
+		stdout,
+		tokens: {
+			tokensInput: usage.input,
+			tokensOutput: usage.output,
+			tokensTotal: usage.totalTokens || usage.input + usage.output,
+			tokensCacheRead: usage.cacheRead,
+			tokensCacheWrite: usage.cacheWrite,
+			costUsd: usage.cost,
+		},
+	};
 }
 
 /**
@@ -453,9 +581,12 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch(() => {});
 	await writeFile(join(runDir, "stderr.txt"), res.stderr || "", "utf8").catch(() => {});
 
-	// M10: token/cost accounting. Parse token usage from pi output when present
-	// (best-effort; defaults to 0 when the CLI does not report it).
-	const tokens = parseTokenUsage(res.stdout || "", res.stderr || "");
+	// M10: token/cost accounting. When the run went through pi's JSON mode,
+	// `executePi` already extracted the provider-reported usage into `res.tokens`
+	// (the authoritative source). Otherwise fall back to best-effort parsing of
+	// the raw output (used by tests that inject fake text output; defaults to 0
+	// when the CLI does not report it).
+	const tokens = res.tokens || parseTokenUsage(res.stdout || "", res.stderr || "");
 	const durationSeconds = Math.max(0, (Date.parse(finishedAt) - Date.parse(startedAt)) / 1000);
 	const gitSha = await currentGitSha(workspace);
 

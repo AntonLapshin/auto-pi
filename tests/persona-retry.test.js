@@ -22,6 +22,7 @@ import {
 	runPersonaWithRetry,
 	buildPersonaArgs,
 	loadPersonaPromptSync,
+	parseJsonModeOutput,
 	DEFAULT_PERSONA_MAX_RETRIES,
 	DEFAULT_PERSONA_RETRY_BASE_DELAY_MS,
 	DEFAULT_PERSONA_RETRY_MAX_DELAY_MS,
@@ -92,6 +93,8 @@ test("buildPersonaArgs includes persona flags and model/provider, and does NOT p
 	});
 	assert.ok(args.includes("-p"));
 	assert.ok(args.includes("--no-session"));
+	assert.ok(args.includes("--mode"));
+	assert.ok(args.includes("json"), "persona runs use pi JSON mode so token usage is captured");
 	assert.ok(args.includes("--name"));
 	assert.ok(args.includes("engineer-1"));
 	assert.ok(args.includes("--provider"));
@@ -109,6 +112,78 @@ test("buildPersonaArgs includes persona flags and model/provider, and does NOT p
 	// The persona prompt is appended to the system prompt.
 	assert.ok(args.includes("--append-system-prompt"));
 	assert.ok(args.includes("/tmp/ctx.md"));
+});
+
+test("parseJsonModeOutput: extracts cumulative usage and reconstructs text from pi JSON events", () => {
+	// Real pi `--mode json` stream: message_end / turn_end / agent_end all
+	// reference the SAME assistant message, so usage+text must be counted once.
+	const stream = [
+		JSON.stringify({ type: "session", version: 3, id: "x", timestamp: "t", cwd: "/ws" }),
+		JSON.stringify({ type: "agent_start" }),
+		JSON.stringify({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "hello world" }],
+				usage: { input: 1540, output: 2, cacheRead: 5, cacheWrite: 3, totalTokens: 1542, cost: { total: 0.0001 } },
+				stopReason: "stop",
+			},
+		}),
+		JSON.stringify({
+			type: "turn_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "hello world" }],
+				usage: { input: 1540, output: 2, cacheRead: 5, cacheWrite: 3, totalTokens: 1542, cost: { total: 0.0001 } },
+			},
+			toolResults: [],
+		}),
+		JSON.stringify({
+			type: "agent_end",
+			messages: [
+				{ role: "assistant", content: [{ type: "text", text: "hello world" }], usage: { input: 1540, output: 2, cacheRead: 5, cacheWrite: 3, totalTokens: 1542, cost: { total: 0.0001 } } },
+			],
+			willRetry: false,
+		}),
+	].join("\n");
+
+	const r = parseJsonModeOutput(stream);
+	assert.equal(r.stdout, "hello world\n");
+	// Not triple-counted despite message_end + turn_end + agent_end.
+	assert.equal(r.tokens.tokensInput, 1540);
+	assert.equal(r.tokens.tokensOutput, 2);
+	assert.equal(r.tokens.tokensTotal, 1542);
+	assert.equal(r.tokens.tokensCacheRead, 5);
+	assert.equal(r.tokens.tokensCacheWrite, 3);
+	assert.ok(r.tokens.costUsd > 0);
+});
+
+test("parseJsonModeOutput: sums usage across multiple assistant turns", () => {
+	const stream = [
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "one" }], usage: { input: 100, output: 10, totalTokens: 110, cost: { total: 0.01 } } } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "two" }], usage: { input: 200, output: 20, totalTokens: 220, cost: { total: 0.02 } } } }),
+	].join("\n");
+	const r = parseJsonModeOutput(stream);
+	assert.equal(r.stdout, "one\ntwo\n");
+	assert.equal(r.tokens.tokensInput, 300);
+	assert.equal(r.tokens.tokensOutput, 30);
+	assert.equal(r.tokens.tokensTotal, 330);
+});
+
+test("parseJsonModeOutput: falls back to agent_end when no message_end is seen", () => {
+	const stream = JSON.stringify({
+		type: "agent_end",
+		messages: [{ role: "assistant", content: [{ type: "text", text: "final" }], usage: { input: 50, output: 5, totalTokens: 55, cost: { total: 0 } } }],
+	});
+	const r = parseJsonModeOutput(stream);
+	assert.equal(r.stdout, "final\n");
+	assert.equal(r.tokens.tokensTotal, 55);
+});
+
+test("parseJsonModeOutput: passes non-JSON output through untouched (no tokens)", () => {
+	const r = parseJsonModeOutput("tokens: { input: 10, output: 5 }");
+	assert.equal(r.stdout, "tokens: { input: 10, output: 5 }");
+	assert.equal(r.tokens, undefined);
 });
 
 test("loadPersonaPromptSync falls back to built-in prompt", () => {
