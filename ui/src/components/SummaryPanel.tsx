@@ -2,7 +2,7 @@ import type { StatusResponse } from "../lib/types";
 import { StatCard } from "./StatCard";
 import { fmtNumber, fmtTokens, fmtDuration } from "../lib/format";
 
-export function SummaryPanel({ status }: { status: StatusResponse }) {
+export function SummaryPanel({ status, className = "" }: { status: StatusResponse; className?: string }) {
   const s = status;
   const active = s.activePersona;
   const today = s.usage.today;
@@ -10,7 +10,7 @@ export function SummaryPanel({ status }: { status: StatusResponse }) {
   const maxHourTokens = Math.max(1, ...usageByHour.map((d) => d.tokensTotal));
 
   return (
-    <section className="grid gap-4">
+    <section className={`grid gap-4 ${className}`}>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Active persona"
@@ -49,12 +49,14 @@ export function SummaryPanel({ status }: { status: StatusResponse }) {
         {usageByHour.length === 0 ? (
           <p className="text-sm text-slate-500">No usage recorded yet.</p>
         ) : (
-          <div className="flex h-28 items-end gap-1.5">
+          <div className="flex h-28 gap-1.5">
             {usageByHour.map((d) => {
               const h = Math.max(4, (d.tokensTotal / maxHourTokens) * 100);
               return (
-                <div key={d.hour} className="flex flex-1 flex-col items-center gap-1" title={`${d.hour}:00 — ${fmtTokens(d.tokensTotal)}`}>
-                  <div className="w-full rounded-t bg-gradient-to-t from-indigo-600 to-violet-500" style={{ height: `${h}%` }} />
+                <div key={d.hour} className="flex h-full flex-1 flex-col items-center" title={`${d.hour}:00 — ${fmtTokens(d.tokensTotal)}`}>
+                  <div className="flex w-full flex-1 items-end">
+                    <div className="w-full rounded-t bg-gradient-to-t from-indigo-600 to-violet-500" style={{ height: `${h}%` }} />
+                  </div>
                   <span className="whitespace-nowrap text-[10px] text-slate-500">{d.hour.slice(11)}h</span>
                 </div>
               );

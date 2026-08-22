@@ -1,9 +1,9 @@
 import type { ErrorRecord } from "../lib/types";
 import { fmtTime, fmtDate } from "../lib/format";
 
-export function ErrorsPanel({ errors }: { errors: ErrorRecord[] }) {
+export function ErrorsPanel({ errors, className = "" }: { errors: ErrorRecord[]; className?: string }) {
   return (
-    <section className="rounded-xl border border-rose-900/40 bg-rose-950/20 p-5">
+    <section className={`rounded-xl border border-rose-900/40 bg-rose-950/20 p-5 ${className}`}>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-rose-300">
         Errors ({errors.length})
       </h2>

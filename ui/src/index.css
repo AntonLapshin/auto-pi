@@ -6,6 +6,27 @@ body {
   @apply bg-slate-950 text-slate-100 antialiased;
 }
 
+/* Single dashboard grid — all layout gaps, columns and named areas live here. */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "summary summary"
+    "health  timeline"
+    "health  errors"
+    "runs    runs"
+    "footer  footer";
+  gap: 1rem;
+}
+
+.area-summary  { grid-area: summary; }
+.area-health   { grid-area: health; }
+.area-timeline { grid-area: timeline; }
+.area-errors   { grid-area: errors; }
+.area-runs     { grid-area: runs; }
+.area-footer   { grid-area: footer; }
+.area-full     { grid-column: 1 / -1; }
+
 /* Subtle scrollbar for the dark theme */
 ::-webkit-scrollbar {
   width: 8px;

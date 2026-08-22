@@ -12,12 +12,12 @@ function Bar({ value, className }: { value: number; className: string }) {
   );
 }
 
-export function HealthPanel({ status }: { status: StatusResponse }) {
+export function HealthPanel({ status, className = "" }: { status: StatusResponse; className?: string }) {
   const h = status.health;
   const personas = Object.entries(status.stats.byPersona);
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className={`rounded-xl border border-slate-800 bg-slate-900/60 p-5 ${className}`}>
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-slate-400">
         Health · LLM provider
       </h2>

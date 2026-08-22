@@ -9,9 +9,9 @@ function statusColor(status: string): string {
   return "text-slate-400";
 }
 
-export function RunsTable({ runs }: { runs: RunRecord[] }) {
+export function RunsTable({ runs, className = "" }: { runs: RunRecord[]; className?: string }) {
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <section className={`rounded-xl border border-slate-800 bg-slate-900/60 p-5 ${className}`}>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
         Persona runs
       </h2>
