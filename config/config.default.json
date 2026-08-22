@@ -26,7 +26,7 @@
     "maxIssueAttempts": 3,
     "maxTokensPerCycle": 0,
     "maxTokensPerDay": 0,
-    "maxCostPerDayUsd": 20,
+    "maxCostPerDayUsd": 0,
     "maxPromptTokensPerPersona": 0,
     "maxOutputTokensPerPersona": 0
   },

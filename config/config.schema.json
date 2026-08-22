@@ -47,7 +47,7 @@
         "maxIssueAttempts": { "type": "integer", "minimum": 1, "default": 3 },
         "maxTokensPerCycle": { "type": "integer", "minimum": 0, "default": 0, "description": "Max tokens per loop cycle. 0 = unlimited." },
         "maxTokensPerDay": { "type": "integer", "minimum": 0, "default": 0, "description": "Max tokens per day. 0 = unlimited." },
-        "maxCostPerDayUsd": { "type": "number", "minimum": 0, "default": 20 },
+        "maxCostPerDayUsd": { "type": "number", "minimum": 0, "default": 0, "description": "Max per-day cost in USD. 0 = unlimited." },
         "maxPromptTokensPerPersona": { "type": "integer", "minimum": 0, "default": 0, "description": "Max prompt tokens per persona. 0 = unlimited." },
         "maxOutputTokensPerPersona": { "type": "integer", "minimum": 0, "default": 0, "description": "Max output tokens per persona. 0 = unlimited." }
       }

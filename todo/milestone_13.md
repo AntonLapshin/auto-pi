@@ -19,7 +19,7 @@ Harden the harness against real-world failure modes and productionize the remain
 
 ### Budget / token guardrails
 - [ ] Implement budget guard (skills/budget-guard) enforcing plan.md §21:
-  - `maxTokensPerCycle` (250000), `maxTokensPerDay` (750000), `maxCostPerDayUsd` (20)
+  - `maxTokensPerCycle` (0 = unlimited), `maxTokensPerDay` (0 = unlimited), `maxCostPerDayUsd` (0 = unlimited)
   - stop on budget exceeded (`loop.stopOnBudgetExceeded`)
   - enforce `pi.contextMaxTokens` (150000), `maxPromptTokensPerPersona` (135000), `maxOutputTokensPerPersona` (8000)
 

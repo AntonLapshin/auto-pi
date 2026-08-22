@@ -20,7 +20,7 @@ line instead of crashing.
 |-----------------------------|---------|------------------------------------------------|
 | `maxTokensPerCycle`         | 0       | max tokens in one loop cycle; `0` = unlimited  |
 | `maxTokensPerDay`           | 0       | max tokens in one day; `0` = unlimited         |
-| `maxCostPerDayUsd`          | 20      | max estimated cost per day (USD)               |
+| `maxCostPerDayUsd`          | 0       | max estimated cost per day (USD); `0` = unlimited |
 | `maxPromptTokensPerPersona` | 0       | max prompt tokens a persona may consume; `0` = unlimited |
 | `maxOutputTokensPerPersona` | 0       | max output tokens a persona may produce; `0` = unlimited |
 

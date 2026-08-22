@@ -16,8 +16,8 @@ export const DEFAULT_MAX_TOKENS_PER_CYCLE = 0;
 /** Default per-day token budget (config.limits.maxTokensPerDay). 0 = unlimited. */
 export const DEFAULT_MAX_TOKENS_PER_DAY = 0;
 
-/** Default per-day cost budget in USD (config.limits.maxCostPerDayUsd). */
-export const DEFAULT_MAX_COST_PER_DAY_USD = 20;
+/** Default per-day cost budget in USD (config.limits.maxCostPerDayUsd). 0 = unlimited. */
+export const DEFAULT_MAX_COST_PER_DAY_USD = 0;
 
 /** Default model context window (config.pi.contextMaxTokens). 0 = unlimited. */
 export const DEFAULT_CONTEXT_MAX_TOKENS = 0;
