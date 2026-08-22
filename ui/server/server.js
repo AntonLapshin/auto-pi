@@ -37,6 +37,7 @@ import {
 	logPaths,
 } from "../../skills/logging/core.js";
 import { readActiveProject, checkLock } from "../../extensions/loop/orchestrator.js";
+import { resolveProviderModel } from "../../extensions/loop/provider-env.js";
 
 const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
 const PORT = Number(process.env.AUTOPI_UI_PORT) || 8787;
@@ -164,6 +165,12 @@ async function buildStatus(active) {
 	const stats = personaStats(runs);
 	const activeP = activePersona(runs);
 
+	// Resolve the *effective* provider/model the loop uses (project config →
+	// PI_* env → pi user settings), so the monitor shows the real provider even
+	// when the project config leaves `pi.provider`/`pi.model` empty and the loop
+	// falls back to env/settings (see extensions/loop/provider-env.js).
+	const effective = resolveProviderModel({ config });
+
 	return {
 		project: {
 			name: active.projectName || config?.project?.name || "",
@@ -173,8 +180,8 @@ async function buildStatus(active) {
 		},
 		config: config
 			? {
-					model: config.pi?.model || "",
-					provider: config.pi?.provider || "",
+					model: effective.model || config.pi?.model || "",
+					provider: effective.provider || config.pi?.provider || "",
 					intervalSeconds: config.loop?.intervalSeconds,
 					limits: config.limits || {},
 				}

@@ -13,6 +13,7 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 | `/loop-logs` | Show the latest local logs | `npm run logs` |
 | `/loop-resume` | Resume a stopped/paused project's loop | `npm run resume` |
 | `/loop-sync-config` | Recopy config defaults, preserving project values | `npm run sync-config` |
+| `/loop-provider` | Show or switch the loop's LLM provider/model | — |
 | `/loop-doctor` | Validate environment prerequisites | `npm run doctor` |
 | `/loop` | Start (or report) the autonomous loop | `npm run loop` |
 
@@ -143,6 +144,38 @@ up new default knobs.
 ```bash
 /loop-sync-config
 ```
+
+## `/loop-provider [--provider <name>] [--model <id>] [--show] [--no-restart]`
+
+Shows the LLM **provider/model the loop is currently using** and lets you switch
+it, mirroring pi's built-in `/model` command but for the autonomous loop. The
+selection is persisted to the active project's `.pi/config.json`
+(`config.pi.provider` / `config.pi.model`) and the loop is **safely restarted**
+so every future persona run uses the new provider.
+
+Behaviors:
+
+- **No arguments (interactive):** shows a provider selector, then a model
+  selector within that provider (the same catalogue pi's `/model` uses).
+- **No arguments (non-interactive):** just prints the current provider/model.
+- **`--provider <name>`:** switch to that provider (model picked interactively,
+  or the provider's first model when non-interactive).
+- **`--model <id>`:** switch to that model, inferring the provider from the id.
+- **`--show`:** print the current provider/model without changing anything.
+- **`--no-restart`:** persist the change but skip the automatic loop restart
+  (apply later with `/loop-restart`).
+
+```bash
+/loop-provider
+/loop-provider --provider joingonka
+/loop-provider --provider gonkaapi --model deepseek-ai/DeepSeek-V4-Flash-0731
+/loop-provider --show
+/loop-provider --provider joingonka --no-restart
+```
+
+Because the loop is restarted to apply the change, any persona currently in
+flight finishes normally before the switch takes effect (the same safe restart
+as `/loop-restart`).
 
 ## `/loop-doctor`
 

@@ -25,6 +25,10 @@ import {
 	switchProject,
 	listProjects,
 } from "./orchestrator.js";
+import {
+	readConfiguredProviderModel,
+	writeProviderModel,
+} from "./provider-config.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("loop", {
@@ -180,6 +184,169 @@ export default function (pi: ExtensionAPI) {
 				notify(result.message, "error");
 			}
 			process.stdout.write(result.message + "\n");
+		},
+	});
+
+	// --- /loop-provider (switch the loop's LLM provider/model) ---
+	//
+	// Mirrors pi's built-in `/model` command for the autonomous loop: it shows
+	// the provider/model the loop is currently using and lets the user switch
+	// it interactively (or via `--provider`/`--model` args). The new selection
+	// is persisted to the active project's `.pi/config.json` and the loop is
+	// safely restarted so every future persona run uses it.
+	pi.registerCommand("loop-provider", {
+		description:
+			"Show or switch the LLM provider/model the loop uses (persists to .pi/config.json and restarts the loop). Usage: /loop-provider [--provider <name>] [--model <id>] [--show] [--no-restart]",
+		handler: async (args, ctx) => {
+			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
+				ctx.ui.notify(text, level);
+
+			const activeRes = await readActiveProject();
+			if (!activeRes.ok) {
+				notify(activeRes.error, "error");
+				process.stdout.write(activeRes.error + "\n");
+				return;
+			}
+			const workspace = activeRes.active.workspace;
+
+			// Parse flags from the argument string.
+			const arg = String(args ?? "").trim();
+			const flag = (name: string) => new RegExp(`--${name}(?:[= ](\\S+))?`, "i").exec(arg);
+			const providerArg = flag("provider")?.[1]?.trim();
+			const modelArg = flag("model")?.[1]?.trim();
+			const showOnly = /--show\b/i.test(arg) && !providerArg && !modelArg;
+			const noRestart = /--no-restart\b/i.test(arg);
+
+			// Current configured provider/model (what the loop pins for personas).
+			const current = await readConfiguredProviderModel(workspace);
+			if (!current.ok) {
+				notify(current.error || "Could not read loop provider.", "error");
+				process.stdout.write((current.error || "") + "\n");
+				return;
+			}
+
+			// Enumerate the models/providers pi knows about (from the current
+			// session's model registry, same catalogue `/model` uses).
+			const available = ctx.modelRegistry.getAvailable();
+			const byProvider = new Map<string, typeof available>();
+			for (const m of available) {
+				if (!byProvider.has(m.provider)) byProvider.set(m.provider, []);
+				byProvider.get(m.provider)!.push(m);
+			}
+
+			const showSummary = (label: string) => {
+				const line = `${label}: ${current.provider || "(none)"}${current.model ? "/" + current.model : ""}`;
+				notify(line);
+				process.stdout.write(line + "\n");
+			};
+
+			// No explicit selection → just show the current provider/model.
+			if (showOnly || (!providerArg && !modelArg && !ctx.hasUI)) {
+				showSummary("Current loop provider/model");
+				return;
+			}
+
+			// Resolve the new provider. Precedence: explicit `--provider` arg,
+			// else interactive selection (when UI is available).
+			let newProvider = providerArg || "";
+			let newModel = modelArg || "";
+
+			// If only a model was requested without a provider, try to infer the
+			// provider from the model id.
+			if (!newProvider && newModel) {
+				for (const [p, models] of byProvider) {
+					if (models.some((m) => m.id === newModel)) {
+						newProvider = p;
+						break;
+					}
+				}
+			}
+
+			if (!newProvider && byProvider.size > 0 && ctx.hasUI) {
+				const providerLabels = [...byProvider.keys()].map((p) =>
+					ctx.modelRegistry.getProviderDisplayName(p) || p
+				);
+				const chosen = await ctx.ui.select("Switch loop provider to which provider?", providerLabels);
+				if (!chosen) {
+					notify("Provider switch cancelled.", "warning");
+					return;
+				}
+				const idx = providerLabels.indexOf(chosen);
+				newProvider = [...byProvider.keys()][idx] ?? "";
+			}
+
+			if (!newProvider) {
+				notify(
+					"No provider selected. Pass `--provider <name>` or run interactively. Available: " +
+					([...byProvider.keys()].join(", ") || "none"),
+				"warning",
+				);
+				process.stdout.write(`Available providers: ${[...byProvider.keys()].join(", ") || "none"}\n`);
+				return;
+			}
+
+			// Resolve the model within the chosen provider. Precedence: explicit
+			// `--model` arg, else interactive selection.
+			const providerModels = byProvider.get(newProvider) || [];
+			if (!newModel && providerModels.length > 0 && ctx.hasUI) {
+				const modelLabels = providerModels.map((m) => m.name || m.id);
+				const chosenModel = await ctx.ui.select(
+					`Switch loop model (provider ${newProvider})?`,
+					modelLabels,
+				);
+				if (chosenModel) {
+					const idx = modelLabels.indexOf(chosenModel);
+					newModel = providerModels[idx]?.id ?? "";
+				}
+			}
+
+			// If only a provider was requested without a model, fall back to its
+			// first model when no interactive UI is available.
+			if (!newModel && !ctx.hasUI) {
+				newModel = providerModels[0]?.id || "";
+			}
+
+			if (!newModel) {
+				const fallbackModel = providerModels[0]?.id;
+				if (!fallbackModel) {
+					notify(`Provider "${newProvider}" has no models in the registry.`, "error");
+					process.stdout.write(`Provider "${newProvider}" has no models in the registry.\n`);
+					return;
+				}
+				newModel = fallbackModel;
+			}
+
+			// Persist the new provider/model into the project config.
+			const writeRes = await writeProviderModel(workspace, { provider: newProvider, model: newModel });
+			if (!writeRes.ok) {
+				notify(writeRes.error || "Could not write config.", "error");
+				process.stdout.write((writeRes.error || "") + "\n");
+				return;
+			}
+
+			const changed = writeRes.changed?.length
+				? ` (changed: ${writeRes.changed.join(", ")})`
+				: " (no change)";
+			notify(`Loop provider/model set to ${newProvider}/${newModel}${changed}.`, "success");
+			process.stdout.write(`Loop provider/model set to ${newProvider}/${newModel}${changed}.\n`);
+
+			// Restart the loop so the new provider takes effect on the next cycle.
+			if (noRestart) {
+				notify("Skipping loop restart (--no-restart). Use /loop-restart to apply.", "warning");
+				return;
+			}
+			const restartRes = await restartLoop(workspace, {
+				timeoutMs: 60_000,
+				log: (line: string) => process.stdout.write(`[loop-restart] ${line}\n`),
+			});
+			if (restartRes.ok) {
+				notify(restartRes.message, "success");
+			} else if (restartRes.timedOut) {
+				notify(restartRes.message, "warning");
+			} else {
+				notify(restartRes.message, "error");
+			}
+			process.stdout.write(restartRes.message + "\n");
 		},
 	});
 }

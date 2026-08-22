@@ -95,6 +95,7 @@ installation the following slash commands are available:
 | `/loop-logs`   | Show the latest local logs                   |
 | `/loop-resume` | Resume a stopped/paused project's loop       |
 | `/loop-sync-config`| Recopy config defaults, preserving project values |
+| `/loop-provider` | Show or switch the loop's LLM provider/model (restarts the loop) |
 | `/loop-doctor` | Validate environment prerequisites           |
 
 Each command also has a fallback `npm run <cmd>` / `node scripts/<cmd>.js` entry for

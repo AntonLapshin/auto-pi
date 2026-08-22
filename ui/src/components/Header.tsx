@@ -51,6 +51,18 @@ export function Header({ status, error, loading, onRefresh }: HeaderProps) {
               backend unreachable
             </span>
           ) : null}
+          {status ? (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2.5 py-0.5 text-xs font-medium text-indigo-300"
+              title={`LLM provider/model the loop uses. Switch with /loop-provider.`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+              <span className="truncate">
+                {status.config?.provider || "unknown"}
+                {status.config?.model ? ` / ${status.config.model}` : ""}
+              </span>
+            </span>
+          ) : null}
           {status ? <LoopBadge status={status} /> : null}
           <button
             onClick={onRefresh}
