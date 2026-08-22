@@ -160,6 +160,8 @@ structured ledgers the loop writes to the active project's `.pi/logs/`
 (`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
 See `ui/README.md` for details.
 
+![auto-pi monitor dashboard](docs/screenshots/monitor.png)
+
 ## Further reading
 
 - [`docs/commands.md`](docs/commands.md) — command-by-command usage
