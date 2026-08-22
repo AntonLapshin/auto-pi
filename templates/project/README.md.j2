@@ -44,6 +44,14 @@ The project enforces a strict **core / UI split** (plan.md §19.1):
 
 ## Project documents
 
-- [`manifest.md`](manifest.md) — project charter / intent
+- [`manifest.md`](manifest.md) — project charter / intent (purpose, goals, milestones)
 - [`project-state.md`](project-state.md) — current state and progress
 - [`CHANGELOG.md`](CHANGELOG.md) — versioned change log
+
+{% if has_clarification %}
+## Shaping decisions (from /loop-seed)
+
+{% for c in clarification %}
+- **{{ c.prompt }}** — {{ c.answer }}{% if c.assumed %} *(assumed)*{% endif %}
+{% endfor %}
+{% endif %}

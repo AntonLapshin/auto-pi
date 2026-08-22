@@ -75,6 +75,61 @@ test("buildContext computes demo URL and defaults", () => {
   assert.equal(root.base_path, "/");
 });
 
+test("buildContext surfaces clarification answers to templates", () => {
+  const ctx = buildContext({
+    projectName: "Demo",
+    owner: "acme",
+    repo: "demo-app",
+    clarification: {
+      questions: [
+        { id: "audience", prompt: "Who is it for?", answer: "gamers", assumed: false },
+        { id: "scope", prompt: "What should v1 do?", answer: "multiplayer", assumed: true },
+      ],
+    },
+  });
+  assert.equal(ctx.has_clarification, true);
+  assert.equal(ctx.clarification.length, 2);
+  assert.equal(ctx.clarification[0].id, "audience");
+  assert.equal(ctx.clarification[0].answer, "gamers");
+  assert.equal(ctx.clarification[1].assumed, true);
+  // No clarification -> empty list + false flag.
+  const none = buildContext({ projectName: "X", owner: "o", repo: "r" });
+  assert.equal(none.has_clarification, false);
+  assert.deepEqual(none.clarification, []);
+});
+
+test("manifest + README templates reflect clarification answers", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "auto-pi-scaffold-clar-"));
+  const ctx = buildContext({
+    projectName: "Kingdoms",
+    owner: "octocat",
+    repo: "kingdoms",
+    description: "A kingdoms strategy game",
+    clarification: {
+      questions: [
+        { id: "audience", prompt: "Who is it for?", answer: "gamers", assumed: false },
+        { id: "scope", prompt: "What should v1 do?", answer: "multiplayer", assumed: true },
+      ],
+    },
+  });
+  const res = await scaffoldProject(dir, ctx);
+  assert.equal(res.ok, true);
+
+  const manifest = await readFile(join(dir, "manifest.md"), "utf8");
+  assert.match(manifest, /# Kingdoms — Manifest/);
+  assert.match(manifest, /## Clarification/);
+  assert.match(manifest, /Who is it for/);
+  assert.match(manifest, /gamers/);
+  assert.match(manifest, /multiplayer/);
+  assert.match(manifest, /\(assumed\)/);
+  assert.match(manifest, /## Milestones/);
+
+  const readme = await readFile(join(dir, "README.md"), "utf8");
+  assert.match(readme, /Shaping decisions \(from \/loop-seed\)/);
+  assert.match(readme, /gamers/);
+  assert.match(readme, /multiplayer/);
+});
+
 test("listTemplates finds every .j2 file under the project template dir", async () => {
   const files = await listTemplates();
   assert.ok(files.length >= 20, "finds the full scaffold template set");

@@ -109,7 +109,6 @@ function renderTokens(tokens, context) {
  * matching `{% endX %}` tag.
  */
 function collectBlock(tokens, start, kind) {
-  const openTag = tokens[start];
   const closeTag = `{% end${kind} %}`;
   const elseTag = `{% else %}`;
   let depth = 0;
@@ -118,8 +117,10 @@ function collectBlock(tokens, start, kind) {
     const t = tokens[j];
     if (t.startsWith("{%") && t.endsWith("%}")) {
       const tag = t.slice(2, -2).trim();
-      if (tag.startsWith(`if `) || tag.startsWith(`for `)) depth += 1;
-      else if (tag === `end${kind}`) {
+      if (tag.startsWith(`if `) || tag.startsWith(`for `)) {
+        // Nested block opens (of any kind) increase depth.
+        depth += 1;
+      } else if (tag === `end${kind}`) {
         if (depth === 0) {
           return {
             body: tokens.slice(start + 1, elseIndex === -1 ? j : elseIndex),
@@ -127,6 +128,9 @@ function collectBlock(tokens, start, kind) {
             end: j + 1,
           };
         }
+        depth -= 1;
+      } else if (tag === "endif" || tag === "endfor") {
+        // A nested block's close decreases depth (matches the nested opens).
         depth -= 1;
       } else if (tag === "else" && depth === 0) {
         elseIndex = j;
@@ -147,6 +151,10 @@ function collectBlock(tokens, start, kind) {
  * @param {string} [opts.description] one-line project description
  * @param {string} [opts.basePath]  Vite base path; defaults to `/{repo}/` (M4) so
  *                                  the built demo resolves under GitHub Pages.
+ * @param {object} [opts.clarification] the `applyAnswers` record ({ answers,
+ *                                  questions, usedAssumptions }) from the
+ *                                  clarification step, surfaced to templates so
+ *                                  the scaffold can reflect the user's answers.
  * @returns {object} context passed to every template
  */
 export function buildContext({
@@ -155,12 +163,21 @@ export function buildContext({
   repo,
   description = "",
   basePath,
+  clarification,
 }) {
   // M4: the Vite base defaults to the Pages sub-path `/{repo}/` so asset URLs
   // resolve correctly under https://{owner}.github.io/{repo}/. A caller may
   // override it (e.g. `/` for a project served from a custom root domain).
   const effectiveBasePath = basePath ?? `/${repo}/`;
   const demoUrl = `https://${owner}.github.io/${repo}/`;
+  // Surface the user's clarification answers to the templates. Each entry is
+  // { id, prompt, answer, assumed } so templates can render them as a list.
+  const clarificationAnswers = (clarification?.questions || []).map((q) => ({
+    id: q.id,
+    prompt: q.prompt,
+    answer: q.answer,
+    assumed: Boolean(q.assumed),
+  }));
   return {
     project_name: projectName,
     owner,
@@ -168,6 +185,8 @@ export function buildContext({
     description,
     base_path: effectiveBasePath,
     demo_url: demoUrl,
+    clarification: clarificationAnswers,
+    has_clarification: clarificationAnswers.length > 0,
   };
 }
 

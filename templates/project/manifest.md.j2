@@ -1,11 +1,22 @@
 # {{ project_name }} — Manifest
 
 > Project charter / intent. This file is a living document maintained by the
-> auto-pi PM persona as the project evolves.
+> auto-pi PM persona as the project evolves. The milestones below are the
+> backbone of the project: the PM plans issues against them.
 
 ## Purpose
 
 {{ description }}
+
+{% if has_clarification %}
+## Clarification
+
+The project was shaped by the following answers (from `/loop-seed`):
+
+{% for c in clarification %}
+- **{{ c.prompt }}** — {{ c.answer }}{% if c.assumed %} *(assumed)*{% endif %}
+{% endfor %}
+{% endif %}
 
 ## Goals
 
@@ -22,3 +33,15 @@
 - [ ] `npm install && npm test && npm run build` pass in CI.
 - [ ] A live demo is deployed to GitHub Pages.
 - [ ] `src/core/**` holds 100% test coverage.
+
+## Milestones
+
+> TODO: The PM refines this roadmap into concrete, testable issues. Milestones
+> are the backbone of the project — each one should be a cohesive, demoable
+> increment that builds toward the final product described above.
+
+- **M1 — Foundation**: standing up the project scaffold, CI, and the first
+  vertical slice of the core idea.
+- **M2 — Core feature**: the primary user-facing capability described in the
+  clarification answers, with tests.
+- **M3 — Depth and polish**: integrations, edge cases, and UX refinement.

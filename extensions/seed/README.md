@@ -15,6 +15,13 @@ Implements the `/loop-seed` initiation flow (M2).
   ambiguity, then parses/validates them into the canonical question shape. Falls
   back to `clarify.js`'s generic questions when the agent is unavailable. The
   **only** hardcoded question in `/loop-seed` is the project name (command layer).
+- `agentic-manifest.js` — (new) a second LLM step *after* clarification: runs a fresh
+  `pi -p` batch session that evaluates the idea + the user's clarification answers and
+  produces the real `manifest.md` — purpose, goals, non-goals, success criteria, and a
+  **milestone roadmap** — which becomes the backbone of the project. The PM persona
+  reads `manifest.md` to plan issues/milestones, so this makes the user's answers
+  actually shape what gets built. Falls back to the deterministic template manifest
+  (which already reflects the clarification answers) when the agent is unavailable.
 - `clarify.js` — minimal idea-agnostic fallback question set used only when the
   agent cannot run, plus `applyAnswers` (with a "use assumptions" escape hatch).
   UI-agnostic.
@@ -37,6 +44,17 @@ Run it interactively as `/loop-seed <description>` (it also asks for an explicit
 project name used for the repo slug and display name), or from a shell as
 `npm run seed -- "<description>"` (the CLI prompts over stdin, including the
 project name; add `--yes` to proceed non-interactively with assumptions).
+
+## Manifest generation (the project backbone)
+
+After clarification, `/loop-seed` runs a second agentic step (`agentic-manifest.js`):
+a fresh `pi` architect persona evaluates the idea **plus the user's clarification
+answers** and writes the real `manifest.md` with a milestone roadmap (`M1`, `M2`, …).
+This is what makes the answers matter — the PM persona reads `manifest.md` to plan
+issues and milestones, so the user's requirements drive the implementation. When the
+agent is unavailable, the deterministic template manifest (which already embeds the
+clarification answers) is used instead. Set `generateManifest:false` (or inject
+`executeManifest`) to disable/override for tests.
 
 ## GitHub Pages (M4)
 

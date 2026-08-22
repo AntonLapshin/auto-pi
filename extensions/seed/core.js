@@ -36,6 +36,7 @@ import {
 } from "./constants.js";
 import { applyAnswers } from "./clarify.js";
 import { agenticClarify } from "./agentic-clarify.js";
+import { agenticManifest } from "./agentic-manifest.js";
 import {
 	deriveRepoName,
 	alternativeNames,
@@ -152,6 +153,7 @@ async function writeInitiationState(workspace, state) {
 		},
 		workspace,
 		clarification: state.clarification,
+		manifest: { source: state.manifestSource || "template" },
 		createdAt: state.createdAt,
 		updatedAt: new Date().toISOString(),
 		status: "initiated",
@@ -270,9 +272,12 @@ export async function commitAndPushInitial(workspace, repoFullName, branch, opts
  * @param {string} description the text after `/loop-seed`
  * @param {object} io          injected UI handlers (see module docblock)
  * @param {object} [opts]      { projectName?, owner?, githubConfig?, config?, env?,
- *                              execute?, reuseExisting?, commitInitial } for tests/overrides
+ *                              execute?, executeManifest?, generateManifest?,
+ *                              reuseExisting?, commitInitial } for tests/overrides
  *                              (config/env/execute are forwarded to the agentic
- *                              clarifier — model selection and a test executor).
+ *                              clarifier — model selection and a test executor;
+ *                              executeManifest/generateManifest control the agentic
+ *                              manifest step).
  * @returns {Promise<{ ok: boolean, message: string, state?: object }>}
  */
 export async function runSeed(description, io = {}, opts = {}) {
@@ -490,6 +495,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 		owner,
 		repo: repoName,
 		description: descriptionText,
+		clarification,
 	});
 	const scaffoldRes = await scaffoldProject(workspace, scaffoldContext, opts);
 	if (!scaffoldRes.ok) {
@@ -501,6 +507,39 @@ export async function runSeed(description, io = {}, opts = {}) {
 		};
 	}
 	notify(`Scaffolded project (${scaffoldRes.files.length} files) in ${workspace}.`);
+
+	// 7b-2. Agentic manifest generation: after clarification, another LLM step
+	// *thinks* about the project (idea + user's answers) and produces the real
+	// `manifest.md` — with a milestone roadmap — that becomes the backbone of the
+	// project. The PM persona reads `manifest.md` to plan issues/milestones, so
+	// this makes the user's answers actually shape what gets built. It overwrites
+	// the generic scaffolded manifest. When the agent is unavailable/unusable we
+	// keep the deterministic template-based manifest (which already reflects the
+	// clarification answers). `opts.generateManifest=false` disables the step.
+	let manifestSource = "template";
+	if (opts.generateManifest !== false) {
+		const manifestRes = await agenticManifest({
+			description: descriptionText,
+			projectName: displayName,
+			clarification,
+			config: opts.config,
+			env: opts.env,
+			cwd: workspace,
+			execute: opts.executeManifest,
+		});
+		if (manifestRes.ok && manifestRes.markdown) {
+			await writeFile(join(workspace, "manifest.md"), manifestRes.markdown, "utf8");
+			manifestSource = "agent";
+			notify(
+				`Agentic manifest generated (${manifestRes.manifest.milestones.length} milestones) — the backbone of the project.`,
+			);
+		} else {
+			notify(
+				"Agentic manifest unavailable; using the template manifest (with clarification answers).",
+				"warning",
+			);
+		}
+	}
 
 	// 7c. Project config copy (M5): copy config.default.json to .pi/config.json,
 	// fill project-specific values, and generate the git-ignored local-secrets
@@ -560,6 +599,7 @@ export async function runSeed(description, io = {}, opts = {}) {
 		reused: reuseExisting,
 		alternativesConsidered,
 		clarification,
+		manifestSource,
 		workspace,
 		createdAt,
 	});

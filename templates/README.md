@@ -23,6 +23,13 @@ Context passed to every template (see `buildContext` in `scaffold.js`):
 | `description`  | one-line project description              |
 | `base_path`    | Vite base path (defaults to `/{repo}/`, M4)|
 | `demo_url`     | GitHub Pages demo URL for the project     |
+| `clarification`| user's `/loop-seed` clarification answers (list of `{id, prompt, answer, assumed}`) |
+| `has_clarification` | true when clarification answers are present |
+
+The scaffold's `manifest.md` and `README.md` embed the clarification answers. After
+scaffolding, `core.js` runs the agentic manifest step (`agentic-manifest.js`) which
+replaces the generic `manifest.md` with a project-specific one containing a real
+milestone roadmap (the project backbone the PM plans against).
 
 The scaffold also generates CI + Pages workflows (M4):
 
