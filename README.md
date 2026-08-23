@@ -68,6 +68,11 @@ recorded in `~/.auto-pi/current-project.json`.
 - `/loop-seed` (or `npm run seed`) creates a **brand-new** project: since `/loop-stop`
   preserves the active-project record, seeding safely stops the currently-active
   project's loop first, then seeds the new project as active.
+- `/loop-pull` (or `npm run pull`) **continues an existing project on this machine**
+  from its GitHub repo (e.g. one you seeded on another machine): it clones the repo
+  into the local workspace, configures it as an auto-pi project, records it as the
+  active project, and starts the loop — so you can `/loop-switch`, `/loop-status`,
+  etc. exactly as if it had been seeded here.
 - `/loop-restart` (or `npm run restart`) **restarts** the loop for the same project
   rather than pausing it: it safely stops the running loop (any in-flight persona
   finishes normally, never killed), waits for it to exit, and starts a fresh loop.
@@ -88,6 +93,7 @@ installation the following slash commands are available:
 | Command       | Purpose                                      |
 |---------------|----------------------------------------------|
 | `/loop-seed`   | Spin up a new project (clarify, create repo, scaffold, start loop) |
+| `/loop-pull`   | Continue an existing project on this machine from its GitHub repo |
 | `/loop-stop`   | Pause the autonomous loop (project stays active) |
 | `/loop-restart`| Safely restart the autonomous loop (stop, then start again) |
 | `/loop-switch` | Switch the active project to another locally-seeded project |
@@ -104,13 +110,55 @@ non-interactive use (see [`scripts/`](scripts)).
 > **Note on commands in `package.json`:** Pi registers slash commands
 > programmatically via `pi.registerCommand()` in an extension
 > (`extensions/harness.ts` for `/loop-status`, `/loop-logs`, `/loop-resume`,
-> `/loop-sync-config`; `extensions/seed` for `/loop-seed`; `extensions/loop` for
+> `/loop-sync-config`; `extensions/seed` for `/loop-seed`; `extensions/pull` for
+> `/loop-pull`; `extensions/loop` for
 > `/loop`/`/loop-stop`/`/loop-restart`/`/loop-switch`; `extensions/doctor` for
 > `/loop-doctor`) — the `pi` block in `package.json` only declares resource
 > directories.
 
 To verify the installation loaded cleanly, start Pi and confirm `/loop-seed`,
-`/loop-stop`, `/loop-status`, `/loop-doctor` show up in `/`-command completion.
+`/loop-pull`, `/loop-stop`, `/loop-status`, `/loop-doctor` show up in
+`/`-command completion.
+
+## Continue on another machine (`/loop-pull`)
+
+`auto-pi` makes it easy to **continue a project on a different machine**. A seeded
+project's repo on GitHub contains the project code plus the committed
+`.pi/config.json` — the per-machine local state (`.pi/state/`, `.pi/logs/`,
+`.pi/runs/`, `.pi/local.json`) is git-ignored and stays on the machine it was
+seeded on.
+
+To pick the project up on a new machine:
+
+```bash
+pi install /path/to/auto-pi
+/loop-pull https://github.com/AntonLapshin/ape-kingdom
+```
+
+`/loop-pull` (`npm run pull` non-interactively) clones the repo into the same
+`~/.auto-pi/workspaces/{owner}/{repo}/repo` layout `/loop-seed` uses, verifies it
+is an auto-pi project (committed `.pi/config.json`), recreates the git-ignored
+`.pi/state/initiation.json` marker so `/loop-switch` and the loop-recognition
+helpers see it as a locally-seeded project, records it as the **active** project,
+and starts the loop.
+
+After `/loop-pull`, every other auto-pi command works exactly as if the project
+had been seeded here:
+
+```bash
+/loop-switch            # list local projects and switch (the pulled one is listed)
+/loop-status            # active project, loop, last run, issues/PRs, budget
+/loop-logs              # latest local logs
+/loop-restart           # safely restart the loop
+```
+
+The argument can be a full GitHub URL, an `owner/repo` pair, or an SSH URL:
+
+```bash
+/loop-pull https://github.com/AntonLapshin/ape-kingdom
+/loop-pull AntonLapshin/ape-kingdom
+npm run pull -- AntonLapshin/ape-kingdom --no-start
+```
 
 ## GitHub Token setup
 
@@ -133,7 +181,7 @@ git-ignored `.pi/local.json` of the generated project or in environment variable
 auto-pi/
 ├── config/        # default config + JSON-Schema
 ├── docs/          # user/operator documentation (github-token, ...)
-├── extensions/    # Pi extensions: providers + harness commands + seed/doctor/loop
+├── extensions/    # Pi extensions: providers + harness commands + seed/pull/doctor/loop
 ├── personas/      # fresh-session persona prompts (pm, engineer, review-engineer)
 ├── policies/      # cross-cutting policies excerpted into persona context
 ├── scripts/       # fallback Node CLI entries (seed/loop/stop/status/doctor)

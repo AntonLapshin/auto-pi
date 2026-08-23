@@ -12,6 +12,7 @@
   },
   "scripts": {
     "seed": "node scripts/seed.js",
+    "pull": "node scripts/pull.js",
     "loop": "node scripts/loop.js",
     "stop": "node scripts/stop.js",
     "switch": "node scripts/switch.js",

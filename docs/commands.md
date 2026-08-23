@@ -76,6 +76,40 @@ npm run switch -- --no-start  # switch without auto-starting the loop
 > The previous project is not deleted — its workspace, state, and lock remain
 > intact, so you can switch back to it at any time.
 
+## `/loop-pull <repo-url>`
+
+Continues an **existing auto-pi project on this machine** from its GitHub repo —
+the companion to `/loop-seed` for working across machines. It stops the
+currently-active project's loop (if any), clones the repo into the same
+`~/.auto-pi/workspaces/{owner}/{repo}/repo` layout `/loop-seed` uses, verifies it
+is an auto-pi project (committed `.pi/config.json`), recreates the git-ignored
+`.pi/state/initiation.json` marker (so `/loop-switch` and the loop-recognition
+helpers see it as a locally-seeded project), records it as the **active**
+project, and starts the loop.
+
+The argument can be a full GitHub URL, an `owner/repo` pair, or an SSH URL:
+
+```bash
+/loop-pull https://github.com/AntonLapshin/ape-kingdom
+/loop-pull AntonLapshin/ape-kingdom
+npm run pull -- AntonLapshin/ape-kingdom
+npm run pull -- https://github.com/AntonLapshin/ape-kingdom --no-start
+```
+
+Flags:
+
+- `--no-start` — pull + record the active project but do **not** start the loop
+  (start it later with `/loop` or `npm run loop`).
+- `--yes` — skip the confirmation prompt (CLI only).
+
+After `/loop-pull`, every other auto-pi command works exactly as if the project
+had been seeded on this machine: `/loop-switch`, `/loop-status`, `/loop-logs`,
+`/loop-restart`, `/loop`, etc.
+
+> The repo must be an auto-pi project — i.e. it must have a committed
+> `.pi/config.json` (which `/loop-seed` writes and commits). A repo without one
+> is rejected with a clear message.
+
 ## `/loop-restart [--timeout N]`
 
 Safely restarts the autonomous loop for the **same** active project. Unlike

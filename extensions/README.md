@@ -10,6 +10,7 @@ subdirectory here.
 | `joingonka.ts`  | JoinGonka provider (DeepSeek V4 Flash / Kimi)       | existing  |
 | `gonkaapi.ts`   | GonkaAPI provider (DeepSeek V4 Flash)               | existing  |
 | `seed/`         | Initiation + repo creation + project scaffold + CI/Pages + deploy health | M2, M3, M4 |
+| `pull/`         | Continue an existing project on this machine from its GitHub repo (`/loop-pull`) | — |
 | `doctor/`       | Environment prerequisite checks                      | M1 (done) |
 | `loop/`         | Loop orchestrator, state scanner, dispatcher, PM/Engineer/Review Engineer context packers, reliability helpers | M6, M7, M8, M9, M13 |
 
