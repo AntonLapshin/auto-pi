@@ -143,7 +143,10 @@ function issueSummary(i) {
 	if (i.body && i.body.includes(PM_NOTE_RESOLVED)) noteFlags.push("note-resolved");
 	const idMatch = ISSUE_ID_RE.exec(i.body || "");
 	const id = idMatch ? `${idMatch[1]}-T${idMatch[2]}` : "";
-	return `- #${i.number} **${i.title}** [${i.labels.join(", ") || "no labels"}]${id ? ` (id:${id})` : ""}${noteFlags.length ? ` — ${noteFlags.join(", ")}` : ""}`;
+	const labels = i.labels || [];
+	if (labels.includes("pi:blocked")) noteFlags.push("blocked");
+	if (labels.includes("pi:ready")) noteFlags.push("ready");
+	return `- #${i.number} **${i.title}** [${labels.join(", ") || "no labels"}]${id ? ` (id:${id})` : ""}${noteFlags.length ? ` — ${noteFlags.join(", ")}` : ""}`;
 }
 
 /**
@@ -201,6 +204,21 @@ export async function buildPmContext({ workspace, config, state, decision, ghFn 
 		lines.push(``);
 	} else {
 		lines.push(`No open issues.`, ``);
+		lines.push(``);
+	}
+
+	// Blocked issues (revisit + unblock when obstacles resolve).
+	const blocked = issues.filter((i) => (i.labels || []).includes("pi:blocked"));
+	lines.push(`### Blocked issues (${blocked.length})`, ``);
+	if (blocked.length) {
+		lines.push(`The following issues carry \`pi:blocked\` and need your review: unblock \`pi:ready\` only once the blocking obstacle (e.g. prerequisite issues) is genuinely resolved; otherwise leave them blocked and let the loop re-dispatch you later.`);
+		lines.push(``);
+		for (const i of blocked) {
+			lines.push(`- #${i.number} **${i.title}** [${(i.labels || []).join(", ")}]`);
+		}
+		lines.push(``);
+	} else {
+		lines.push(`No blocked issues.`, ``);
 		lines.push(``);
 	}
 

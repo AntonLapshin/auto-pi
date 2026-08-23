@@ -9,6 +9,8 @@ plus the repository. Personas act autonomously and never ask for confirmation.
 `personas/pm.md` — plans the project.
 
 - Handles PM notes (`PI-NOTE persona=PM ...`) on issues.
+- Revisits `pi:blocked` issues and unblocks them (`pi:ready`) once the obstacle
+  (e.g. prerequisite issues) is resolved, so blocked work never stalls the loop.
 - Creates small XS/S issues with labels (`size:*`, `type:*`, `milestone:*`) and
   acceptance criteria (`- [ ]` checklist).
 - Updates `manifest.md` / `project-state.md`.

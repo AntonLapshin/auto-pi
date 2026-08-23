@@ -20,7 +20,7 @@
  * next task; PM spawns only after all PRs are merged and no issues remain:
  *   5. unresolved PM work (`pi:needs-pm`/`pi:pm-note`) → PM (split/unblock)
  *   6. open ready issues                       → Engineer
- *   7. open issues remain (unplanned/PM notes) → PM
+ *   7. open issues remain (unplanned/PM notes/blocked) → PM
  *   8. no open PRs and no open issues          → PM (finalize) — unless the
  *      project is already marked done (completed.json), in which case → WAIT
  *      so the loop polls GitHub at zero cost and only resumes work when a new
@@ -210,6 +210,16 @@ export function dispatch(inputs) {
 	//    issue re-dispatches the Engineer onto the oversized issue, which stalls
 	//    again. (needsHuman() already exempts `pi:blocked`+`pi:needs-pm` from the
 	//    human wait, so this is the counterpart that gets the PM to actually split.)
+	//
+	//    NOTE: a bare `pi:blocked` issue (no `pi:needs-pm`/`pi:pm-note`) is NOT
+	//    routed here. needsHuman() no longer waits on a human for a bare
+	//    `pi:blocked`, and routing it to the PM here (ahead of ready work) would
+	//    starve the Engineer: the block often stays valid for many cycles (e.g.
+	//    while its prerequisite issues are implemented), so the PM would be
+	//    re-dispatched every cycle and the Engineer would never reach the ready
+	//    issues that actually resolve the block. Bare `pi:blocked` issues are
+	//    instead surfaced to the PM via step 7 (issues remain → PM) once no ready
+	//    work is left, so the PM revisits/unblocks them without blocking progress.
 	const pmWork = issues.filter((i) =>
 		i.labels.includes(LABELS.PM_NOTE) || i.labels.includes(LABELS.NEEDS_PM),
 	);

@@ -577,33 +577,36 @@ export async function switchProject(target, io = {}, opts = {}) {
 
 /**
  * Check whether the project's initiation/state requires a human decision.
- * Looks for a `pi:needs-human` / `pi:blocked` open issue (plan.md §15 step 3).
- * Also honours an explicit needs-human marker in initiation.json.
+ * Looks for an explicit `pi:needs-human` open issue (plan.md §15 step 3) and
+ * honours an explicit needs-human marker in initiation.json.
  *
- * The `pi:blocked` label ALONE is ambiguous and must NOT by itself stop the
- * loop on a human:
+ * Only an EXPLICIT `pi:needs-human` signal warrants waiting on a human. A bare
+ * `pi:blocked` label must NOT stall the loop on a human: blocked work is a PM
+ * concern — the PM revisits blocked issues and unblocks them once their
+ * obstacles resolve (surfaced to the PM via dispatcher step 7 once no ready
+ * work is left). Freezing the whole loop because one issue is blocked would
+ * also stall every other `pi:ready` issue that could be implemented.
  *
- *   - `pi:blocked` + `pi:needs-human`  → human decision required (the Pages
- *     deploy and attempt-limit paths always pair these, so this is the signal).
+ *   - `pi:needs-human` (with or without `pi:blocked`) → human decision required
+ *     (the Pages deploy and attempt-limit paths always pair these, so this is
+ *     the authoritative signal).
  *   - `pi:blocked` + `pi:needs-pm`     → a PM job, NOT a human job: the Engineer
  *     labels an issue this way (engineer.md Step 7, scope-too-large) so the PM
  *     can split/re-plan it. The loop must dispatch the PM, not wait on a human.
- *   - `pi:blocked` alone               → treated as human-required (conservative
- *     fallback; no harness code path currently applies it bare).
+ *   - `pi:blocked` alone               → NOT a human wait. Surfaced to the PM so
+ *     it can revisit the block and unblock when obstacles (e.g. prerequisite
+ *     issues) are resolved. Never blocks the whole loop.
  */
 export async function needsHuman(workspace, state) {
 	for (const i of state?.issues || []) {
 		if (i.labels.includes("pi:needs-human")) return true;
-		// `pi:blocked` only warrants a human when it is NOT routed to the PM
-		// (i.e. not accompanied by `pi:needs-pm`).
-		if (i.labels.includes("pi:blocked") && !i.labels.includes("pi:needs-pm")) return true;
 	}
-	// Fallback: initiation.json may carry a blocked/needs-human status.
+	// Fallback: initiation.json may carry a needs-human marker.
 	try {
 		const raw = await readFile(join(workspace, ".pi", "state", "initiation.json"), "utf8");
 		const init = JSON.parse(raw);
 		const status = String(init?.status || "").toLowerCase();
-		return status === "needs-human" || status === "blocked";
+		return status === "needs-human";
 	} catch {
 		return false;
 	}

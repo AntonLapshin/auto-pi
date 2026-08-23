@@ -60,12 +60,58 @@ Examples:
 
 ---
 
-## Step 2 — Skip if open issues exist without PM notes
+## Step 1b — Revisit `pi:blocked` issues and unblock when obstacles resolve
 
-If there are open issues but **none** have unresolved PM notes, the Engineer is
-already working (or a PR is in flight). **Skip your turn**: do not create issues,
-do not update project state. Just report that you are waiting for in-flight work
-and stop.
+A `pi:blocked` issue is work that cannot proceed yet (e.g. it depends on
+prerequisite issues that are still open). The loop routes bare `pi:blocked`
+issues to you (the PM) so you can **revisit them and unblock them once the
+obstacle is resolved** — instead of stalling the whole loop on a human.
+
+1. List open issues that carry the `pi:blocked` label:
+   `gh issue list --repo {owner}/{repo} --state open --json number,title,body,labels`.
+2. For each `pi:blocked` issue, determine whether its obstacle is now resolved:
+   - If the block is a **dependency on other issues**, check whether those
+     prerequisite issues are now merged/closed (e.g. `gh pr list --repo ... --state merged`
+     or `gh issue view {n}`). If the prerequisites are done, **unblock** the issue:
+     remove `pi:blocked` and add `pi:ready`
+     (`gh issue edit {n} --remove-label pi:blocked --add-label pi:ready`).
+   - If the block is still valid (prerequisites not yet merged, or an external
+     dependency remains), **leave `pi:blocked` in place** — do not force it ready.
+     Just note it and move on; the loop will re-dispatch you to revisit later.
+3. Only unblock an issue when its obstacle is genuinely resolved. Do not force
+   `pi:ready` onto work whose prerequisites are still open — that would push the
+   Engineer onto unimplementable work.
+4. If there were blocked issues to revisit, handle them and **end your turn**
+   (do not create new issues in the same turn — let the loop re-dispatch).
+
+---
+
+## Step 2 — Skip only when the open work is in flight; otherwise plan it
+
+Open issues fall into two buckets. Decide which one you are looking at before
+acting:
+
+- **In-flight work** — an open issue that carries `pi:ready` (the Engineer is
+  already implementing it) **or** an open PR exists (a PR is in flight). When
+  *every* open issue is `pi:ready` and/or a PR is open, the loop is mid-stream:
+  **Skip your turn** — do not create issues, do not update project state. Just
+  report that you are waiting for in-flight work and stop.
+
+- **Unplanned work** — an open issue with **no** `pi:ready` label, no PM note,
+  and no `pi:blocked`. This is exactly the case the dispatcher routes to you
+  with reason `N open issue(s) remain unplanned`: the Engineer is NOT working on
+  it (no `pi:ready`) and no PR is in flight. **You must plan it** — do **not**
+  skip. Go to **Step 5** and turn it into a small batch of `pi:ready` sub-issues
+  (split into a milestone if it is large, then close the parent issue).
+
+  Concretely: after Step 1/1b, if any open issue lacks `pi:ready` and there is no
+  open PR, treat it as unplanned and proceed to **Step 5** to plan it — do not
+  assume the Engineer is already on it.
+
+> Why: an unlabeled open issue is *unplanned* work, not in-flight work. The
+> dispatcher sends you the PM turn specifically so you can plan it. Skipping
+> (the old Step 2) trapped the loop in an endless PM cycle where every turn
+> skipped and nothing was ever planned.
 
 ---
 
