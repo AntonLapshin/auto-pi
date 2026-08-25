@@ -36,7 +36,11 @@
       "properties": {
         "intervalSeconds": { "type": "integer", "minimum": 5, "default": 60 },
         "stopOnBudgetExceeded": { "type": "boolean", "default": true },
-        "maxConsecutiveFailures": { "type": "integer", "minimum": 1, "default": 3 }
+        "maxConsecutiveFailures": { "type": "integer", "minimum": 1, "default": 3 },
+        "personaInactivityMs": { "type": "integer", "minimum": 0, "default": 600000,
+          "description": "Persona inactivity timeout in ms (default 10 min). If a persona emits no output for this long it is considered hung and is killed + retried instead of stalling the loop. 0 disables." },
+        "personaTimeoutMs": { "type": "integer", "minimum": 0, "default": 3600000,
+          "description": "Hard wall-clock cap in ms for a single persona session (default 60 min). Backstop for hangs that defeat inactivity detection (slow trickle of output while never progressing); guarantees the loop can never be blocked on one persona longer than this. 0 disables." }
       }
     },
     "limits": {

@@ -312,11 +312,12 @@ export async function runPersona({
 
 	const args = buildPersonaArgs({ persona, runId, contextFile, task, config, env });
 	const childEnv = buildChildEnv({ config, env });
+	const execOpts = { inactivityMs: personaInactivityMs(config), maxMs: personaMaxMs(config) };
 
 	const startedAt = new Date().toISOString();
 	const res = await (execute
-		? execute(args, childEnv, workspace)
-		: executePi(args, childEnv, workspace));
+		? execute(args, childEnv, workspace, execOpts)
+		: executePi(args, childEnv, workspace, execOpts));
 	const finishedAt = new Date().toISOString();
 
 	return finalizePersonaRun({
@@ -420,12 +421,72 @@ export function buildChildEnv({ config, env } = {}) {
  *
  * @returns {Promise<{ exitCode: number, stdout: string, stderr: string, tokens?: object }>}
  */
-export async function executePi(args, childEnv, workspace) {
+/**
+ * Persona inactivity timeout (ms) from config, default 10 minutes.
+ * A persona that emits no stdout/stderr output for this long is considered
+ * hung (idle socket / zero CPU) and is killed + retried rather than stalling
+ * the loop. 0 disables.
+ */
+export function personaInactivityMs(config = {}) {
+	const v = Number(config?.loop?.personaInactivityMs);
+	if (Number.isFinite(v) && v > 0) return v;
+	return 600000; // 10 minutes
+}
+
+/**
+ * Persona hard wall-clock cap (ms) from config, default 60 minutes. This is a
+ * backstop for the inactivity timeout: some hangs keep emitting a slow trickle
+ * of output (defeating inactivity detection) while never completing or making
+ * real progress. The wall-clock cap guarantees the loop can never be blocked
+ * on a single persona longer than this, regardless of output. 0 disables.
+ */
+export function personaMaxMs(config = {}) {
+	const v = Number(config?.loop?.personaTimeoutMs);
+	if (Number.isFinite(v) && v > 0) return v;
+	return 3600000; // 60 minutes
+}
+
+export async function executePi(args, childEnv, workspace, opts = {}) {
 	const { spawn } = await import("node:child_process");
+	const inactivityMs = Number(opts?.inactivityMs) > 0 ? Number(opts.inactivityMs) : 0;
+	const maxMs = Number(opts?.maxMs) > 0 ? Number(opts.maxMs) : 0;
 	return new Promise((resolve) => {
 		let stdout = "";
 		let stderr = "";
 		let child;
+		let inactivityTimer = null;
+		let maxTimer = null;
+		let settled = false;
+
+		const finish = (res) => {
+			if (settled) return;
+			settled = true;
+			if (inactivityTimer) clearTimeout(inactivityTimer);
+			if (maxTimer) clearTimeout(maxTimer);
+			inactivityTimer = null;
+			maxTimer = null;
+			resolve(res);
+		};
+
+		// Kill a hung persona and surface a retryable stall (exitCode null) so the
+		// loop's retry logic recovers instead of blocking the whole loop forever.
+		const killHung = () => {
+			const hung = Boolean(child && !child.killed);
+			try { child?.kill("SIGKILL"); } catch {}
+			finish({ exitCode: null, timedOut: true, hung, stdout, stderr });
+		};
+
+		// Inactivity watchdog: no output for `inactivityMs` → hung. Re-armed on
+		// every byte of output, so legitimately long but actively-working persona
+		// sessions are never killed — only silent hangs are. A slow trickle of
+		// output defeats this, which is why the hard `maxMs` cap below exists.
+		const armInactivity = () => {
+			if (inactivityTimer) clearTimeout(inactivityTimer);
+			if (!inactivityMs) { inactivityTimer = null; return; }
+			inactivityTimer = setTimeout(() => { killHung(); }, inactivityMs);
+			if (inactivityTimer.unref) inactivityTimer.unref();
+		};
+
 		try {
 			child = spawn("pi", args, {
 				cwd: workspace,
@@ -433,16 +494,23 @@ export async function executePi(args, childEnv, workspace) {
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 		} catch (err) {
-			resolve({ exitCode: 1, stdout: "", stderr: String(err?.message || err) });
+			finish({ exitCode: 1, stdout: "", stderr: String(err?.message || err) });
 			return;
 		}
-		child.stdout.on("data", (d) => { stdout += d; });
-		child.stderr.on("data", (d) => { stderr += d; });
+
+		// Hard wall-clock backstop: kill regardless of output after `maxMs` total.
+		if (maxMs) {
+			maxTimer = setTimeout(() => { killHung(); }, maxMs);
+			if (maxTimer.unref) maxTimer.unref();
+		}
+		armInactivity();
+		child.stdout.on("data", (d) => { stdout += d; armInactivity(); });
+		child.stderr.on("data", (d) => { stderr += d; armInactivity(); });
 		child.on("error", (err) => {
-			resolve({ exitCode: 1, stdout, stderr: String(err?.message || err) });
+			finish({ exitCode: 1, stdout, stderr: String(err?.message || err) });
 		});
 		child.on("close", (code) => {
-			resolve({
+			finish({
 				exitCode: code ?? 1,
 				// If the invocation used pi's JSON mode, reconstruct the plain-text
 				// response and extract the provider-reported token usage. Otherwise
@@ -713,6 +781,7 @@ export async function runPersonaWithRetry(opts = {}) {
 	const { maxRetries, baseDelayMs, maxDelayMs } = personaRetrySettings(opts.config);
 	const onRetry = typeof opts.onRetry === "function" ? opts.onRetry : () => {};
 	const execute = opts.execute || executePi;
+	const execOpts = { inactivityMs: personaInactivityMs(opts.config), maxMs: personaMaxMs(opts.config) };
 
 	const {
 		workspace,
@@ -735,7 +804,7 @@ export async function runPersonaWithRetry(opts = {}) {
 	let lastRetryable = false;
 
 	while (true) {
-		const res = await execute(args, childEnv, workspace);
+		const res = await execute(args, childEnv, workspace, execOpts);
 		lastRes = res;
 		if (res.exitCode === 0) break;
 
@@ -744,7 +813,8 @@ export async function runPersonaWithRetry(opts = {}) {
 		if (!retryable || retries >= maxRetries) break;
 
 		const delayMs = backoffDelay(retries, { baseDelayMs, maxDelayMs });
-		const reason = (res.stderr || res.stdout || "").slice(0, 200) || "persona invocation failed";
+		const reason = (res.stderr || res.stdout || "").slice(0, 200)
+			|| (res.timedOut ? `persona hung (no output for ${Math.round((execOpts.inactivityMs || 0) / 60000)}min or exceeded ${Math.round((execOpts.maxMs || 0) / 60000)}min cap); retrying` : "persona invocation failed");
 		onRetry({
 			attempt: retries + 1,
 			reason,

@@ -19,7 +19,9 @@
   "loop": {
     "intervalSeconds": 60,
     "stopOnBudgetExceeded": true,
-    "maxConsecutiveFailures": 3
+    "maxConsecutiveFailures": 3,
+    "personaInactivityMs": 600000,
+    "personaTimeoutMs": 3600000
   },
   "limits": {
     "maxBatchIssues": 3,

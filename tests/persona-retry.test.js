@@ -19,7 +19,10 @@ import { join } from "node:path";
 import {
 	isRetryablePersonaFailure,
 	personaRetrySettings,
+	personaInactivityMs,
+	personaMaxMs,
 	runPersonaWithRetry,
+	executePi,
 	buildPersonaArgs,
 	loadPersonaPromptSync,
 	parseJsonModeOutput,
@@ -77,6 +80,22 @@ test("personaRetrySettings reads config overrides", () => {
 test("personaRetrySettings allows maxRetries=0 (disable retry)", () => {
 	const s = personaRetrySettings({ pi: { maxRetries: 0 } });
 	assert.equal(s.maxRetries, 0);
+});
+
+test("personaInactivityMs applies the 10-min default", () => {
+	assert.equal(personaInactivityMs({}), 600000);
+	assert.equal(personaInactivityMs({ loop: {} }), 600000);
+});
+
+test("personaInactivityMs reads config override and allows disabling", () => {
+	assert.equal(personaInactivityMs({ loop: { personaInactivityMs: 3000 } }), 3000);
+	assert.equal(personaInactivityMs({ loop: { personaInactivityMs: 0 } }), 600000); // 0 => default
+});
+
+test("personaMaxMs applies the 60-min wall-clock default and reads overrides", () => {
+	assert.equal(personaMaxMs({}), 3600000);
+	assert.equal(personaMaxMs({ loop: { personaTimeoutMs: 1000 } }), 1000);
+	assert.equal(personaMaxMs({ loop: { personaTimeoutMs: 0 } }), 3600000); // 0 => default
 });
 
 // --- buildPersonaArgs ---
@@ -269,6 +288,33 @@ test("runPersonaWithRetry: retries a transient failure then succeeds", async () 
 	assert.equal(ledger[0].status, "ok");
 });
 
+test("runPersonaWithRetry: retries a hung/stalled persona (timeout shape) then succeeds", async () => {
+	const dir = await makeWorkspace();
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	let calls = 0;
+	const retries = [];
+	// Simulate the inactivity watchdog: first attempt produces no output and
+	// reports exitCode null + timedOut (a hung persona was killed).
+	const execute = async () => {
+		calls += 1;
+		if (calls === 1) return { exitCode: null, timedOut: true, stdout: "", stderr: "" };
+		return { exitCode: 0, stdout: "done", stderr: "" };
+	};
+	const res = await runPersonaWithRetry({
+		...baseOpts(dir, execute),
+		onRetry: (info) => retries.push(info),
+	});
+	assert.equal(res.ok, true);
+	assert.equal(calls, 2);
+	assert.equal(res.retries, 1);
+	assert.equal(retries.length, 1);
+	// The retry reason should mention the inactivity stall, not a generic failure.
+	assert.match(retries[0].reason, /no output/i);
+	const ledger = await readLedger(dir);
+	assert.equal(ledger.length, 1);
+	assert.equal(ledger[0].status, "ok");
+});
+
 test("runPersonaWithRetry: gives up after maxRetries on persistent transient failure", async () => {
 	const dir = await makeWorkspace();
 	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
@@ -401,4 +447,54 @@ test("runPersonaWithRetry: records LLM retry events and health on transient fail
 	assert.equal(health.length, 2);
 	assert.equal(health.filter((h) => h.ok).length, 1);
 	assert.equal(health.filter((h) => !h.ok).length, 1);
+});
+
+// --- executePi hang/timeout watchdog ---
+
+/** Create a stub `pi` executable on PATH used by executePi (which spawns "pi"). */
+async function makeStubPi(lines) {
+	const binDir = await mkdtemp(join(tmpdir(), "auto-pi-pibin-"));
+	await writeFile(join(binDir, "pi"), `#!/usr/bin/env bash\n${lines.join("\n")}\n`, { mode: 0o755 });
+	return binDir;
+}
+
+test("executePi: inactivity watchdog kills a silent hung persona and is retryable", async () => {
+	const binDir = await makeStubPi([
+		'echo "started"',
+		"sleep 300", // no further output → hung
+	]);
+	const childEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+	const t0 = Date.now();
+	const res = await executePi(["-p"], childEnv, "/tmp", { inactivityMs: 400, maxMs: 60000 });
+	const elapsed = Date.now() - t0;
+	assert.equal(res.timedOut, true);
+	assert.equal(res.exitCode, null); // → isRetryablePersonaFailure true
+	assert.equal(res.hung, true);
+	assert.ok(elapsed >= 350 && elapsed < 10000, `elapsed ${elapsed}ms`);
+});
+
+test("executePi: wall-clock cap kills a trickle-output hang that defeats inactivity", async () => {
+	const binDir = await makeStubPi([
+		// Emit output periodically (< inactivity) but never finish — inactivity
+		// watchdog is re-armed forever; only the hard wall-clock cap catches it.
+		"while true; do echo 'tick '$(date +%s%N); sleep 0.05; done",
+	]);
+	const childEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+	const t0 = Date.now();
+	const res = await executePi(["-p"], childEnv, "/tmp", { inactivityMs: 60000, maxMs: 500 });
+	const elapsed = Date.now() - t0;
+	assert.equal(res.timedOut, true);
+	assert.equal(res.exitCode, null);
+	assert.ok(elapsed >= 450 && elapsed < 10000, `elapsed ${elapsed}ms`);
+});
+
+test("executePi: returns normally when the persona finishes before the timeout", async () => {
+	const binDir = await makeStubPi([
+		'echo "tokens: { input: 10, output: 5 }"',
+	]);
+	const childEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+	const res = await executePi(["-p"], childEnv, "/tmp", { inactivityMs: 5000, maxMs: 20000 });
+	assert.equal(res.timedOut, undefined);
+	assert.equal(res.exitCode, 0);
+	assert.match(res.stdout || "", /tokens/);
 });
