@@ -127,7 +127,12 @@ function isProcessAlive(pid) {
 export async function acquireLock(workspace) {
 	const { lock, stateDir } = paths(workspace);
 	const current = await checkLock(workspace);
-	if (current.locked) {
+	// A live lock held by THIS process is our own: the loop re-enters a cycle
+	// on the same process (e.g. after an interrupted or erroring cycle left its
+	// lock behind), so it must never be mistaken for a competing loop. Only a
+	// lock held by a DIFFERENT live process is a genuine second loop, which is
+	// what we refuse here. The self-owned lock is refreshed (rewritten) below.
+	if (current.locked && current.pid !== process.pid) {
 		return {
 			ok: false,
 			message: `A loop is already running for this project (PID ${current.pid}). Refusing to start a second loop (plan.md §13.2).`,
@@ -697,6 +702,9 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		const activeRes = await readActiveProject(opts.currentProjectFile);
 		if (!activeRes.ok) {
 			await logCycleError(workspace, { error: activeRes.error, action: "error" }, config);
+			// Release the lock held this cycle so an error never leaks a live
+			// self-owned lock that would deadlock the next cycle (plan.md §13.2).
+			await releaseLock(workspace).catch(() => {});
 			return { ok: false, action: "error", message: activeRes.error };
 		}
 		const active = activeRes.active;
@@ -707,6 +715,11 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		const scanRes = await scanGithubState(owner, repo, ghFn);
 		if (!scanRes.ok) {
 			await logCycleError(workspace, { error: `State scan failed: ${scanRes.error}`, action: "error" }, config);
+			// Release the lock held this cycle so a transient network/scan failure
+			// never leaks a live self-owned lock that would deadlock the next cycle
+			// (plan.md §13.2). Without this, the loop gets stuck forever refusing
+			// to start "a second loop" that is actually itself.
+			await releaseLock(workspace).catch(() => {});
 			return { ok: false, action: "error", message: `State scan failed: ${scanRes.error}` };
 		}
 		const state = scanRes.state;

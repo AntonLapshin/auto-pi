@@ -497,14 +497,31 @@ test("prepareRun writes context file and returns run dir", async () => {
 
 // --- orchestrator: lock, stop, active project, cycle ---
 
-test("acquireLock refuses a second loop for the same project", async () => {
+test("acquireLock refuses a second loop for the same project (different live PID)", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-lock-"));
 	const first = await acquireLock(dir);
 	assert.equal(first.ok, true);
-	// Simulate a live lock owned by this process (PID alive).
+	// Simulate a live lock owned by a DIFFERENT process (a genuine second loop):
+	// PID 1 (init) is always alive on Linux and is never our own process.
+	await writeFile(join(dir, ".pi", "state", "loop.lock"), JSON.stringify({ pid: 1 }), "utf8");
 	const second = await acquireLock(dir);
 	assert.equal(second.ok, false);
 	assert.match(second.message, /already running/);
+	// The foreign lock is not ours, so we must NOT be able to release it.
+	const released = await releaseLock(dir);
+	assert.equal(released, false);
+});
+
+test("acquireLock re-acquires a live lock owned by this process (no self-deadlock)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-lock-"));
+	const first = await acquireLock(dir);
+	assert.equal(first.ok, true);
+	// The same loop process re-enters a cycle while holding its own lock (e.g.
+	// after an erroring cycle leaked it). It must NOT be mistaken for a second
+	// loop — the loop deadlocks forever otherwise. It should succeed (re-acquire).
+	const again = await acquireLock(dir);
+	assert.equal(again.ok, true);
+	assert.match(again.message, /acquired/);
 	const released = await releaseLock(dir);
 	assert.equal(released, true);
 });
