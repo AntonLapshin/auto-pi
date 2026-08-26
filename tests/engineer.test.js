@@ -104,6 +104,30 @@ test("resolveTarget picks the lowest-numbered ready issue", () => {
 	assert.equal(t.number, 2);
 });
 
+test("resolveTarget prefers the highest-priority ready issue", () => {
+	// p2 issue with the lower number is skipped in favour of the p1 issue.
+	const t = resolveTarget(state(
+		[issue(3, ["pi:ready", "priority:p1"]), issue(1, ["pi:ready", "priority:p2"])],
+		[],
+	));
+	assert.equal(t.kind, "implement");
+	assert.equal(t.number, 3);
+});
+
+test("resolveTarget treats issues without a priority label as lowest priority", () => {
+	// Unlabelled issues fall behind priority:p1..p3 issues but keep number order.
+	const t = resolveTarget(state(
+		[issue(1, ["pi:ready", "priority:p3"]), issue(9, ["pi:ready"]), issue(5, ["pi:ready"])],
+		[],
+	));
+	assert.equal(t.kind, "implement");
+	assert.equal(t.number, 1);
+
+	const s = resolveTarget(state([issue(5, ["pi:ready"]), issue(2, ["pi:ready"]), issue(1, ["pi:ready"])], []));
+	assert.equal(s.kind, "implement");
+	assert.equal(s.number, 1);
+});
+
 test("resolveTarget returns null with no ready work", () => {
 	assert.equal(resolveTarget(state([issue(1, ["pi:blocked"])], [])), null);
 	assert.equal(resolveTarget(state([], [])), null);

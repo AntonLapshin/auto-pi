@@ -29,7 +29,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ISSUE_ID_RE, LABELS } from "./constants.js";
+import { ISSUE_ID_RE, LABELS, priorityRank } from "./constants.js";
 
 /** Relative (to workspace) paths of the project files the Engineer reads. */
 export const PROJECT_FILES = {
@@ -288,14 +288,17 @@ export function resolveTarget(state) {
 		return { kind: "merge", number: approvedMerge.number, labels: approvedMerge.labels };
 	}
 
-	// 3. Implement the lowest-numbered `pi:ready` issue not already in flight.
+	// 3. Implement the highest-priority `pi:ready` issue not already in flight.
+	//    The PM labels issues `priority:p1/p2/p3`; p1 is done first. Fall back
+	//    to the lowest priority and the oldest (lowest-number) issue as a
+	//    tie-break so dependency chains still resolve in order.
 	const ready = issues.filter((i) => hasLabel(i.labels, LABELS.READY));
 	if (ready.length) {
 		// Skip issues that already have an open PR or a task branch in flight.
 		const inFlightPrNumbers = new Set(prs.map((p) => p.number));
 		const candidate = ready
 			.filter((i) => !inFlightPrNumbers.has(i.number))
-			.sort((a, b) => a.number - b.number)[0];
+			.sort((a, b) => priorityRank(a.labels) - priorityRank(b.labels) || a.number - b.number)[0];
 		if (candidate) {
 			return { kind: "implement", number: candidate.number, labels: candidate.labels };
 		}

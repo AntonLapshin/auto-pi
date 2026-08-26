@@ -31,7 +31,11 @@ The repository lives in your current working directory. Key files:
 2. Pick a `pi:ready` issue (label `pi:ready`) that is **not already in progress**:
    - skip issues that already have an open PR or an existing `task/{issueNum}-*`
      branch (check `gh pr list` and `git branch -r`).
-   - prefer the issue with the lowest number whose acceptance criteria are
+   - **prefer the highest-priority ready issue** (label `priority:p1`, then
+     `priority:p2`, then `priority:p3`), breaking ties by the lowest issue number.
+     `p1` is the foundational / do-first work the PM wants next; if no priority
+     label is present treat it as lowest priority.
+   - among the highest priority, pick the issue whose acceptance criteria are
      unambiguous and whose scope fits a single session.
 3. If there is no suitable `pi:ready` issue, report that and stop (do not invent
    work).

@@ -107,6 +107,36 @@ export const TYPES = {
 export const MILESTONE_LABEL_PREFIX = "milestone:";
 
 /**
+ * Priority label prefix. The PM labels every issue with a priority
+ * (`priority:p1` / `priority:p2` / `priority:p3`) so the Engineer knows which
+ * issues to pick up next. `p1` is the highest priority (do this first);
+ * `p3` is lowest. Priorities are advisory ordering hints — the PM still keeps
+ * every issue XS/S so each fits one Engineer session.
+ */
+export const PRIORITY_LABEL_PREFIX = "priority:";
+
+/**
+ * Priority ordering used when the Engineer sorts `pi:ready` issues. Lower
+ * number = higher priority = picked first. `priority:p1` -> 1, `priority:p2`
+ * -> 2, `priority:p3` -> 3, unknown/absent -> default low priority (so
+ * labelled priorities win over unlabelled).
+ */
+export const PRIORITY_RANK = {
+	p1: 1,
+	p2: 2,
+	p3: 3,
+};
+
+/** Relative rank for an issue's priority label, or a high number when absent. */
+export function priorityRank(labels = []) {
+	for (const label of labels) {
+		const slug = String(label).replace(PRIORITY_LABEL_PREFIX, "");
+		if (slug in PRIORITY_RANK) return PRIORITY_RANK[slug];
+	}
+	return 99;
+}
+
+/**
  * PM note marker in an issue body (plan.md §16.2). Matches lines like:
  *   `PI-NOTE persona=PM reason=scope-too-large action=split`
  * The persona=PM part is required; extra key=value attributes are captured.
