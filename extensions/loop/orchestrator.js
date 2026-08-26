@@ -35,7 +35,7 @@ import { runReliabilityChecks } from "./reliability.js";
 import { checkConsecutiveFailures, checkCycleBudget, budgetLimits } from "../../skills/budget-guard/core.js";
 import { validateConfig } from "../../skills/config/core.js";
 import { createGhClient } from "../../skills/github/core.js";
-import { buildPmContext } from "./pm-context.js";
+import { buildPmContext, manifestHasRemainingScope } from "./pm-context.js";
 import { buildEngineerContext } from "./engineer-context.js";
 import { buildReviewContext } from "./review-context.js";
 import {
@@ -618,8 +618,8 @@ export async function needsHuman(workspace, state) {
 }
 
 /**
- * Best-effort read of the local completion marker the PM writes when the
- * project is done (plan.md §24, personas/pm.md Step 4). Absent → not done.
+ * Best-effort read of the completion marker the PM writes when the project
+ * is done (plan.md §24, personas/pm.md Step 4). Absent → not done.
  * @param {string} workspace
  * @returns {Promise<{ status: string, completedAt?: string, repo?: string, demoUrl?: string }>}
  */
@@ -632,6 +632,32 @@ async function readCompletedState(workspace) {
 		// no completion marker yet
 	}
 	return null;
+}
+
+/**
+ * True only when the project is genuinely done: the PM has written a
+ * `completed.json` marker AND the manifest no longer declares remaining scope
+ * (its status is not `done` with unchecked sub-issues still present). This
+ * prevents a stale `completed.json` (e.g. written when the initial POC shipped)
+ * from suppressing the PM while planned-but-unchecked milestone sub-issues
+ * still exist in manifest.md — otherwise the loop would WAIT forever and never
+ * plan/produce issues for the manifest backlog.
+ */
+async function readCompletedForDispatch(workspace) {
+	const completed = await readCompletedState(workspace);
+	if (!completed) return false;
+	// The manifest is the source of truth for remaining scope. If it still lists
+	// unchecked sub-issues (or its status is not done), the project is not done.
+	let manifest = null;
+	try {
+		manifest = await readFile(join(workspace, "manifest.md"), "utf8");
+	} catch {
+		// manifest missing — fall through to the completed.json marker below
+	}
+	if (manifest != null && manifestHasRemainingScope(manifest)) {
+		return false; // work remains planned in the manifest → not done
+	}
+	return true;
 }
 
 /**
@@ -762,9 +788,13 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			state,
 			config,
 			// The project is considered "done" when the PM has written the
-			// completion marker. When done and there is no open work, the loop
-			// WAITs at zero cost rather than re-spawning the PM to finalize.
-			completed: Boolean(await readCompletedState(workspace)),
+			// completion marker AND the manifest has no remaining scope. When
+			// truly done and there is no open work, the loop WAITs at zero cost
+			// rather than re-spawning the PM to finalize. A stale completed.json
+			// (e.g. left over from an earlier POC ship) must NOT suppress the PM
+			// while planned-but-unchecked sub-issues remain in manifest.md — so
+			// we cross-check the manifest (see readCompletedForDispatch).
+			completed: await readCompletedForDispatch(workspace),
 		});
 		log(`dispatch: ${decision.decision} (${decision.reason})`);
 		await appendEvent(workspace, {

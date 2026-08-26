@@ -81,6 +81,64 @@ function excerpt(text, max = 4000) {
 }
 
 /**
+ * Extract the still-unchecked (`[ ]`) sub-issues from a manifest, grouped by
+ * their milestone heading (e.g. `M20-T1 ...`). The PM needs this to know what
+ * scope from the manifest is still to be done when there are no open issues.
+ * Returns a compact markdown block, or an empty string when the manifest has
+ * no unchecked sub-issues.
+ *
+ * Only lines under a `### M<n> — ...` heading that begin with `  - [ ]` (a
+ * sub-issue checkbox) and carry a task id (`M<n>-T<k>`) are considered
+ * sub-issues. Plain milestone goal checkboxes (`- [ ]` under Scope/Success) are
+ * intentionally ignored so the result isolates discrete planned tasks.
+ */
+export function manifestUncheckedSubissues(manifest) {
+	if (!manifest) return "";
+	const text = String(manifest);
+	const lines = text.split(/\r?\n/);
+	const groups = [];
+	let current = null;
+	for (const line of lines) {
+		const heading = /^###\s+(M\d+)(?:\s*—|\s+-)?/.exec(line.trim());
+		if (heading) {
+			current = { milestone: heading[1], subs: [] };
+			groups.push(current);
+			continue;
+		}
+		if (!current) continue;
+		// A sub-issue is an unchecked checkbox line with a task id like M20-T1.
+		const sub = /^\s*-\s*\[ \]\s+(M\d+-T\d+[a-z0-9-]*)\s+(.*)$/.exec(line);
+		if (sub) {
+			current.subs.push(`${sub[1]} — ${sub[2].trim()}`);
+		}
+	}
+	const filled = groups.filter((g) => g.subs.length > 0);
+	if (filled.length === 0) return "";
+	const out = filled.map((g) => {
+		const items = g.subs
+			.slice(0, 40) // keep it bounded; a project with >40 pending tasks should be split by the PM progressively anyway
+			.map((s) => `  - ${s}`)
+			.join("\n");
+		return `### ${g.milestone}\n${items}`;
+	}).join("\n\n");
+	return out;
+}
+
+/**
+ * True when a manifest declares the project still in progress (its status line
+ * is NOT `done`), or when it still lists any unchecked sub-issues. The PM and
+ * the loop use this to decide whether more work is planned even when the
+ * repository has no open issues/PRs — so a stale `completed.json` never hides
+ * planned-but-unchecked manifest scope.
+ */
+export function manifestHasRemainingScope(manifest) {
+	if (!manifest) return true; // no manifest → assume work remains
+	const text = String(manifest);
+	const statusDone = /\bstatus\s*[:\-]\s*\bdone\b/i.test(text);
+	return !statusDone || Boolean(manifestUncheckedSubissues(manifest));
+}
+
+/**
  * Fetch recent merged PR summaries from GitHub (plan.md §21.1). Returns an
  * array of { number, title, mergedAt, labels }.
  *
@@ -251,24 +309,41 @@ export async function buildPmContext({ workspace, config, state, decision, ghFn 
 	lines.push(`- Latest workflow run: ${state?.ci?.status || "unknown"} / ${state?.ci?.conclusion || "unknown"}${state?.ci?.headBranch ? ` (${state.ci.headBranch})` : ""}`);
 	lines.push(``);
 
-	// Manifest.
+	// Manifest. The manifest is the single source of truth for scope. Its
+	// per-milestone sub-issue checkboxes are the backlog the PM plans from, so
+	// we surface the head of the manifest PLUS an explicit checklist of the
+	// still-unchecked (`[ ]`) sub-issues. Without this, the PM would plan only
+	// from fresh open issues and silently skip scope that is already recorded in
+	// the manifest (see manifest.md truncation bug).
 	if (manifest) {
 		lines.push(`## Manifest (manifest.md)`, ``);
-		lines.push(excerpt(manifest, 4000));
+		lines.push(excerpt(manifest, 8000));
+		lines.push(``);
+		// Compact list of the still-unchecked sub-issues across all milestones —
+		// the concrete backlog the PM must turn into issues.
+		const unchecked = manifestUncheckedSubissues(manifest);
+		lines.push(`### Manifest — unchecked sub-issues (planned-but-not-done scope)`, ``);
+		if (unchecked) {
+			lines.push(`The following sub-issues in manifest.md still have unchecked \`[ ]\` boxes. Use them as the backlog to create issues from (grouped by milestone, in milestone order). Only treat a sub-issue as done when its implementation is actually merged; otherwise plan it:`);
+			lines.push(``);
+			lines.push(unchecked);
+		} else {
+			lines.push(`No unchecked sub-issues remain in manifest.md.`);
+		}
 		lines.push(``);
 	}
 
 	// Project state.
 	if (projectState) {
 		lines.push(`## Project state (project-state.md)`, ``);
-		lines.push(excerpt(projectState, 4000));
+		lines.push(excerpt(projectState, 6000));
 		lines.push(``);
 	}
 
 	// Changelog.
 	if (changelog) {
 		lines.push(`## Changelog (CHANGELOG.md)`, ``);
-		lines.push(excerpt(changelog, 3000));
+		lines.push(excerpt(changelog, 4000));
 		lines.push(``);
 	}
 

@@ -153,6 +153,21 @@ git push
 
 ### 3b. Decide whether the project is DONE
 
+> **Before deciding done, ALWAYS check the manifest backlog.** Even when there
+> are **no open issues**, the project is not done if `manifest.md` still lists
+> unchecked (`[ ]`) sub-issues under any milestone. The context includes a
+> **"Manifest — unchecked sub-issues"** checklist precisely for this. Treat that
+> checklist as the authoritative backlog: if it is non-empty, you are **not**
+> done — go to **Step 5** and create issues for the **next** unchecked sub-issues
+> (in milestone order), so the planned scope in the manifest is never skipped.
+> Only when the checklist is empty (every sub-issue implemented+merged, status
+> `done`) should you consider completing the project.
+>
+> Also: if you continue working a project whose `completed.json` already exists
+> (e.g. left over from an earlier POC ship) but the manifest still has unchecked
+> scope, **delete/clear that stale `completed.json`** so the loop keeps dispatching
+> you to plan the remaining manifest scope instead of waiting.
+
 A project is **done** only when ALL of the following hold (plan.md §16.5 / done-definition):
 
 1. **All milestones complete** — every planned milestone (per `manifest.md`)
@@ -211,6 +226,15 @@ When done, in order:
 
 Create a batch (default `limits.maxBatchIssues`, usually 3) of issues that break
 the next slice of work into pieces small enough for ONE Engineer session.
+
+> **Where "the next slice" comes from — the manifest backlog.** When the current
+> open issues are exhausted (no open issues left, or reached via Step 3b because
+> no issues were open), the **next slice is defined by `manifest.md`'s unchecked
+> sub-issues**, not by invention. Use the **"Manifest — unchecked sub-issues"**
+> checklist in your context (head the actual `manifest.md` if you need more
+> detail): pick the earliest unchecked sub-issue across milestones, in milestone
+> order, and turn the next batch of them into `pi:ready` issues. Never declare a
+> milestone scope complete while any of its `[ ]` sub-issues are unplanned.
 
 **The set of issues must cover the whole slice — never be minimal.** Create as
 many issues as the slice needs. `maxBatchIssues` is only a *per-turn* cap, not a

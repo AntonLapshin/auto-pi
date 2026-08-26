@@ -15,6 +15,8 @@ import {
 	buildPmContext,
 	fetchMergedPrs,
 	readPolicyExcerpts,
+	manifestUncheckedSubissues,
+	manifestHasRemainingScope,
 } from "../extensions/loop/pm-context.js";
 import { prepareRun, newRunId } from "../extensions/loop/persona-runner.js";
 import {
@@ -210,4 +212,64 @@ test("size/type/label constants and milestoneLabel helper", () => {
 	assert.equal(milestoneLabel("M1"), "milestone:m1");
 	assert.equal(LABELS.NEEDS_PM, "pi:needs-pm");
 	assert.equal(PM_NOTE_RESOLVED, "PI-NOTE-RESOLVED");
+});
+
+// --- Manifest scope extraction (PM backlog) ---
+
+test("manifestUncheckedSubissues lists only unchecked [ ] sub-issues grouped by milestone", () => {
+	const manifest = `# M\n\n**Status: in-progress (M1 partial)**\n\n### M1 — First\n\nSub-issues:\n  - [x] M1-T1 done thing (#1)\n  - [ ] M1-T2 pending thing (#2) — planned next\n\n### M2 — Second\n\nSub-issues:\n  - [ ] M2-T1 another pending (#3)\n\n### M3 — Third\n\nScope:\n  - [ ] not a sub-issue (plain goal box)\n`;
+	const out = manifestUncheckedSubissues(manifest);
+	assert.match(out, /### M1/);
+	assert.match(out, /M1-T2/);
+	assert.doesNotMatch(out, /M1-T1/); // checked → excluded
+	assert.match(out, /### M2/);
+	assert.match(out, /M2-T1/);
+	assert.doesNotMatch(out, /M3/); // only goal checkbox under M3, no sub-issue → excluded
+});
+
+test("manifestUncheckedSubissues returns empty string for complete manifest", () => {
+	const manifest = `# M\n**Status: done**\n### M1 — First\n\nSub-issues:\n  - [x] M1-T1 done thing (#1)\n`;
+	assert.equal(manifestUncheckedSubissues(manifest), "");
+	assert.equal(manifestUncheckedSubissues(null), "");
+});
+
+test("manifestHasRemainingScope is true when unchecked sub-issues remain or status not done", () => {
+	// unchecked sub-issues remain even if status line says done
+	assert.equal(
+		manifestHasRemainingScope("# M\n**Status: done**\n### M1\n  - [ ] M1-T1 pending (#1)\n"),
+		true,
+	);
+	// in-progress status → work remains
+	assert.equal(manifestHasRemainingScope("# M\n**Status: in-progress**\n### M1\n  - [x] M1-T1 done\n"), true);
+	// done status + no unchecked sub-issues → complete
+	assert.equal(
+		manifestHasRemainingScope("# M\n**Status: done**\n### M1\n  - [x] M1-T1 done\n"),
+		false,
+	);
+	// missing manifest → assume work remains (never suppress the PM)
+	assert.equal(manifestHasRemainingScope(null), true);
+});
+
+test("buildPmContext includes the unchecked sub-issue backlog section", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-pm-ctx-"));
+	await writeFile(
+		join(dir, "manifest.md"),
+		"# App — Manifest\n\n## Goals\n- Deliver a slice.\n\n### M20 — Scope\n\nSub-issues:\n  - [ ] M20-T1 No way to step on the water (#146) — `pi:ready`\n  - [x] M20-T2 Done already (#147)\n",
+	);
+	await writeFile(join(dir, "project-state.md"), "# State\n");
+	await writeFile(join(dir, "CHANGELOG.md"), "# Changelog\n");
+	const ctx = await buildPmContext({
+		workspace: dir,
+		config: { project: { owner: "octocat", repo: "repo" } },
+		state: { issues: [], prs: [], ci: {}, fullName: "octocat/repo" },
+		decision: { decision: "pm", persona: "pm", reason: "no open issues" },
+		ghFn: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+	});
+	assert.match(ctx, /Manifest — unchecked sub-issues/);
+	assert.match(ctx, /M20-T1 No way to step on the water/);
+	// The checklist backlog section (after the "Manifest — unchecked sub-issues"
+	// header) must NOT contain the already-checked M20-T2 item, even though the
+	// raw manifest excerpt above it does.
+	const backlog = ctx.slice(ctx.indexOf("Manifest — unchecked sub-issues"));
+	assert.doesNotMatch(backlog, /M20-T2 Done already/);
 });

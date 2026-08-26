@@ -628,6 +628,51 @@ test("runLoopCycle WAITs (does not stop) when project is done and no open work",
 	assert.equal(await isStopped(dir), false);
 });
 
+test("runLoopCycle dispatches PM (does not WAIT) when completed.json is stale but manifest has remaining scope", async () => {
+	// A stale completed.json (e.g. written when the initial POC shipped) must not
+	// suppress the PM while manifest.md still lists unchecked sub-issues — the
+	// loop must dispatch PM to plan the remaining manifest scope.
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-stale-done-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await writeFile(join(dir, ".pi", "config.json"), JSON.stringify({ project: { owner: "o", repo: "r", name: "R" } }), "utf8");
+	await writeFile(join(dir, ".pi", "state", "completed.json"), JSON.stringify({ status: "done", completedAt: "2026-01-01T00:00:00Z" }), "utf8");
+	// Manifest is in-progress with remaining unchecked sub-issues.
+	await writeFile(join(dir, "manifest.md"), "# M\n**Status: in-progress**\n### M1 — First\n\nSub-issues:\n  - [ ] M1-T1 pending thing (#1)\n", "utf8");
+
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(cpFile, JSON.stringify({ workspace: dir, repo: "o/r" }), "utf8");
+
+	const result = await runLoopCycle(dir, { log: () => {} }, {
+		gh: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+		currentProjectFile: cpFile,
+		dryRun: true,
+	});
+	// PM is dispatched to plan the manifest backlog, not a zero-cost WAIT.
+	assert.equal(result.decision, DECISION.PM);
+	assert.equal(result.persona, PERSONAS.PM);
+	assert.equal(result.action, "ran");
+});
+
+test("runLoopCycle WAITs when completed.json present AND manifest has no remaining scope", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-complete-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await writeFile(join(dir, ".pi", "config.json"), JSON.stringify({ project: { owner: "o", repo: "r", name: "R" } }), "utf8");
+	await writeFile(join(dir, ".pi", "state", "completed.json"), JSON.stringify({ status: "done" }), "utf8");
+	await writeFile(join(dir, "manifest.md"), "# M\n**Status: done**\n### M1 — First\n\nSub-issues:\n  - [x] M1-T1 done thing (#1)\n", "utf8");
+
+	const cpFile = join(dir, "current-project.json");
+	await writeFile(cpFile, JSON.stringify({ workspace: dir, repo: "o/r" }), "utf8");
+
+	const result = await runLoopCycle(dir, { log: () => {} }, {
+		gh: async () => ({ ok: true, stdout: "[]", stderr: "", exitCode: 0 }),
+		currentProjectFile: cpFile,
+	});
+	assert.equal(result.action, "waiting");
+	assert.equal(result.decision, DECISION.WAIT);
+});
+
 test("runLoopCycle does not stop on budget when stopOnBudgetExceeded=false (M13)", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-budget-off-"));
 	await mkdir(join(dir, ".pi", "state"), { recursive: true });
