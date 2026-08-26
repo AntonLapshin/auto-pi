@@ -42,6 +42,13 @@ test("isRetryablePersonaFailure: true for network/timeout/5xx/rate-limit", () =>
 	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "insufficient_quota" }), true);
 });
 
+test("isRetryablePersonaFailure: true for provider account/billing errors (insufficient balance)", () => {
+	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "400: insufficient balance" }), true);
+	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "insufficient_balance" }), true);
+	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "quota exhausted" }), true);
+	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "payment required" }), true);
+});
+
 test("isRetryablePersonaFailure: true for empty output with non-zero exit", () => {
 	assert.equal(isRetryablePersonaFailure({ exitCode: 1, stdout: "", stderr: "" }), true);
 });
@@ -203,6 +210,39 @@ test("parseJsonModeOutput: passes non-JSON output through untouched (no tokens)"
 	const r = parseJsonModeOutput("tokens: { input: 10, output: 5 }");
 	assert.equal(r.stdout, "tokens: { input: 10, output: 5 }");
 	assert.equal(r.tokens, undefined);
+});
+
+test("parseJsonModeOutput: surfaces a provider error (stopReason error, no text)", () => {
+	// Real pi failure mode: the provider returns an HTTP error (e.g. "400
+	// insufficient balance") and pi exits 0 with empty assistant content but
+	// stopReason "error" + errorMessage. This must be surfaced as providerError
+	// so the run is treated as failed rather than a silent no-op.
+	const stream = [
+		JSON.stringify({ type: "session", version: 3, id: "x", cwd: "/ws" }),
+		JSON.stringify({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [],
+				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { total: 0 } },
+				stopReason: "error",
+				errorMessage: '400: {\"message\":\"insufficient balance\",\"type\":\"invalid_request_error\"}',
+			},
+		}),
+	].join("\n");
+	const r = parseJsonModeOutput(stream);
+	assert.equal(r.stdout, "");
+	assert.match(r.providerError, /insufficient balance/);
+});
+
+test("parseJsonModeOutput: does not set providerError on a normal stop", () => {
+	const stream = JSON.stringify({
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "ok" }], usage: { input: 1, output: 1, totalTokens: 2, cost: { total: 0 } }, stopReason: "stop" },
+	});
+	const r = parseJsonModeOutput(stream);
+	assert.equal(r.providerError, undefined);
+	assert.equal(r.stdout, "ok\n");
 });
 
 test("loadPersonaPromptSync falls back to built-in prompt", () => {
@@ -497,4 +537,22 @@ test("executePi: returns normally when the persona finishes before the timeout",
 	assert.equal(res.timedOut, undefined);
 	assert.equal(res.exitCode, 0);
 	assert.match(res.stdout || "", /tokens/);
+});
+
+test("executePi: forces a non-zero exit when the provider errors despite pi exiting 0", async () => {
+	// A stub `pi` that exits 0 but emits a JSON stream whose assistant message
+	// carries stopReason "error" + errorMessage (the "400 insufficient balance"
+	// failure mode). executePi must NOT record this as a successful no-op — it
+	// must force a non-zero exit and surface the provider error on stderr so the
+	// loop retries / records an error instead of re-dispatching forever.
+	const binDir = await makeStubPi([
+		'echo \'{"type":"session","version":3,"id":"x","cwd":"/ws"}\'',
+		'echo \'{"type":"message_end","message":{"role":"assistant","content":[],"usage":{"input":0,"output":0,"totalTokens":0,"cost":{"total":0}},"stopReason":"error","errorMessage":"400: insufficient balance"}}\'',
+	]);
+	const childEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+	const res = await executePi(["-p"], childEnv, "/tmp", { inactivityMs: 5000, maxMs: 20000 });
+	assert.equal(res.exitCode, 1);
+	assert.match(res.stderr || "", /insufficient balance/);
+	// And it classifies as retryable so the retry wrapper will retry then stop.
+	assert.equal(isRetryablePersonaFailure(res), true);
 });

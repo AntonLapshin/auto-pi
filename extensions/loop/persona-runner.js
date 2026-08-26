@@ -103,7 +103,19 @@ export function isRetryablePersonaFailure(res) {
 		/429/.test(text) ||
 		/overloaded/i.test(text) ||
 		/insufficient_quota/i.test(text) ||
-		/context_length_exceeded/i.test(text)
+		/context_length_exceeded/i.test(text) ||
+		// Provider account/billing errors (e.g. "400 insufficient balance",
+		// "payment required", "quota exhausted"). These are often transient (the
+		// account may be topped up / retried), so retry a few times; if they keep
+		// failing the consecutive-failure stop halts the loop instead of spinning.
+		/insufficient balance/i.test(text) ||
+		/insufficient_balance/i.test(text) ||
+		/\b400\b/i.test(text) ||
+		/payment required/i.test(text) ||
+		/\bquota\b/i.test(text) ||
+		/\bbalance\b/i.test(text) ||
+		/\bbilling\b/i.test(text) ||
+		/\b402\b/.test(text)
 	);
 }
 
@@ -510,13 +522,17 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 			finish({ exitCode: 1, stdout, stderr: String(err?.message || err) });
 		});
 		child.on("close", (code) => {
+			const parsed = parseJsonModeOutput(stdout);
+			// A provider/LLM error (e.g. "400 insufficient balance") makes `pi` exit 0
+			// with empty output. Force a non-zero exit so the run is treated as a
+			// failure (retried, then recorded as an error) instead of a silent no-op
+			// that the loop would re-dispatch forever. Surface the reason on stderr.
+			const providerError = parsed.providerError || "";
+			const effectiveCode = providerError ? 1 : (code ?? 1);
 			finish({
-				exitCode: code ?? 1,
-				// If the invocation used pi's JSON mode, reconstruct the plain-text
-				// response and extract the provider-reported token usage. Otherwise
-				// (non-JSON / error output) pass stdout through untouched.
-				...parseJsonModeOutput(stdout),
-				stderr,
+				exitCode: effectiveCode,
+				...parsed,
+				stderr: providerError ? `${stderr}${stderr ? "\n" : ""}provider error: ${providerError}` : stderr,
 			});
 		});
 	});
@@ -536,8 +552,17 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
  * When the stream is not JSON (e.g. an error banner or a stub), returns the
  * input unchanged with no tokens so callers fall back to `parseTokenUsage`.
  *
+ * A provider/LLM failure is surfaced so the caller treats the run as failed
+ * rather than a silent no-op. When `pi`'s provider returns an HTTP error (e.g.
+ * "400 insufficient balance", rate limit, quota), `pi` still exits 0 but every
+ * assistant message carries `stopReason: "error"` with an `errorMessage` and
+ * NO text content / 0 tokens. Without detection this would be recorded as a
+ * successful run that did nothing — the loop keeps re-dispatching the same
+ * persona forever because no work ever lands. We detect that and return
+ * `providerError` so the exit code can be forced non-zero.
+ *
  * @param {string} raw  raw stdout from `pi --mode json`
- * @returns {{ stdout: string, tokens?: { tokensInput, tokensOutput, tokensTotal, tokensCacheRead, tokensCacheWrite, costUsd } }}
+ * @returns {{ stdout: string, tokens?: { tokensInput, tokensOutput, tokensTotal, tokensCacheRead, tokensCacheWrite, costUsd }, providerError?: string }}
  */
 export function parseJsonModeOutput(raw) {
 	const text = String(raw || "");
@@ -559,6 +584,11 @@ export function parseJsonModeOutput(raw) {
 	const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: 0 };
 	let textParts = [];
 	let sawUsage = false;
+	// A provider/LLM error detected in the event stream (e.g. `stopReason:
+	// "error"` with an `errorMessage`). When present, the run must be treated as
+	// failed even though `pi` exits 0, otherwise a silent no-op would be recorded
+	// as a successful run and the loop would re-dispatch the persona forever.
+	let providerError = "";
 
 	const accumulate = (u) => {
 		if (!u || typeof u !== "object") return;
@@ -581,6 +611,19 @@ export function parseJsonModeOutput(raw) {
 	// `agent_end.messages` repeats the SAME messages, so we must NOT also walk it
 	// or we would double/triple-count usage and text (message_end + turn_end +
 	// agent_end all reference the same assistant message).
+	// Collect any provider error surfaced on an assistant message. `pi` emits
+	// `stopReason: "error"` (with an `errorMessage`) when the provider returns an
+	// HTTP error such as "400 insufficient balance", rate limit, or quota — even
+	// though the process still exits 0. Track the first one we see.
+	const captureProviderError = (msg) => {
+		if (providerError) return;
+		const stopReason = String(msg?.stopReason || "");
+		const errMsg = String(msg?.errorMessage || "").trim();
+		if (stopReason === "error" || errMsg) {
+			providerError = errMsg || `provider stopped with reason: ${stopReason}`;
+		}
+	};
+
 	let sawAssistant = false;
 	for (const line of lines) {
 		let ev;
@@ -592,6 +635,7 @@ export function parseJsonModeOutput(raw) {
 		if (!ev || typeof ev !== "object") continue;
 		if (ev.type === "message_end" && ev.message?.role === "assistant") {
 			sawAssistant = true;
+			captureProviderError(ev.message);
 			accumulate(ev.message.usage);
 			addText(ev.message);
 		}
@@ -611,6 +655,7 @@ export function parseJsonModeOutput(raw) {
 			if (ev?.type === "agent_end" && Array.isArray(ev.messages)) {
 				for (const m of ev.messages) {
 					if (m?.role === "assistant") {
+						captureProviderError(m);
 						accumulate(m.usage);
 						addText(m);
 					}
@@ -620,10 +665,16 @@ export function parseJsonModeOutput(raw) {
 	}
 
 	const stdout = textParts.join("\n").trim() + (textParts.length ? "\n" : "");
-	if (!sawUsage) return { stdout: stdout || text };
+	// When the provider errored, the assistant produced no real text — return
+	// empty stdout (not the raw JSON stream) so downstream parsers don't try to
+	// interpret the error banner as persona output. The run is marked failed via
+	// `providerError` regardless.
+	const base = { stdout: providerError ? "" : (stdout || text) };
+	if (providerError) base.providerError = providerError;
+	if (!sawUsage) return base;
 
 	return {
-		stdout,
+		...base,
 		tokens: {
 			tokensInput: usage.input,
 			tokensOutput: usage.output,
