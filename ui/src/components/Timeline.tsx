@@ -32,11 +32,11 @@ export function Timeline({ events, loading, className = "" }: TimelineProps) {
                   {style.label}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     {e.persona ? (
-                      <span className="text-xs font-medium text-indigo-300">{e.persona}</span>
+                      <span className="shrink-0 text-xs font-medium text-indigo-300">{e.persona}</span>
                     ) : null}
-                    <span className="truncate font-mono text-xs text-slate-300">
+                    <span className="break-words font-mono text-xs text-slate-300">
                       {eventDetail(e)}
                     </span>
                   </div>
@@ -61,7 +61,9 @@ function eventDetail(e: ProgressEvent): string {
     case "persona.finished":
       return `ok · ${fmtTokens(Number(d.tokensTotal))} tokens · ${String(d.durationSeconds ?? 0)}s`;
     case "persona.failed":
-      return `exit ${String(d.exitCode ?? "")}`;
+      const err = String(d.error ?? "");
+      const exit = String(d.exitCode ?? "");
+      return err ? `exit ${exit} · ${err}` : `exit ${exit}`;
     case "loop.dispatch":
       return `${String(d.decision ?? "")} — ${String(d.reason ?? "")}`;
     case "loop.stop":

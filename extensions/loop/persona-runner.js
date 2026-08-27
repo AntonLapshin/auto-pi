@@ -753,6 +753,7 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		data: {
 			status: ok ? "ok" : "error",
 			exitCode: res.exitCode,
+			error: ok ? undefined : (res.stderr || res.stdout || "").slice(0, 2000),
 			tokensInput: tokens.tokensInput,
 			tokensOutput: tokens.tokensOutput,
 			tokensTotal: tokens.tokensTotal,
