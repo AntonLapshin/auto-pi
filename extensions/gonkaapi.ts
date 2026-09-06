@@ -13,7 +13,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { openAiProvider, reasoningModel } from "./providers.js";
+import { openAiProvider, reasoningModel } from "./shared/providers.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerProvider("gonkaapi", openAiProvider({

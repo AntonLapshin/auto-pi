@@ -10,6 +10,12 @@
  *
  * Plain JS on purpose — imported by `extensions/*.ts` (via jiti) and directly
  * by tests / node scripts, matching the seed/loop convention.
+ *
+ * Lives in `extensions/shared/` (not directly under `extensions/`) on purpose:
+ * pi auto-discovers every `.ts`/`.js` file directly under `extensions/` as an
+ * extension entry point, so a helper placed there fails to load with
+ * "Extension does not export a valid factory function". Subdirectories without
+ * their own `index.ts` (like this one) are ignored by pi's discovery.
  */
 
 /**

@@ -30,7 +30,9 @@
   },
   "pi": {
     "extensions": [
-      "./extensions",
+      "./extensions/harness.ts",
+      "./extensions/gonkaapi.ts",
+      "./extensions/joingonka.ts",
       "./extensions/doctor",
       "./extensions/seed",
       "./extensions/pull",
