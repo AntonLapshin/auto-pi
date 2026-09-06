@@ -43,6 +43,10 @@ into an existing project while preserving project-specific values.
 
 ### `limits`
 
+Budget and batching knobs (`0` = unlimited wherever a limit takes a number).
+See [troubleshooting.md](troubleshooting.md) for what happens when a limit is
+hit (stop reasons, `needs-human` flow, how to resume).
+
 | Key | Type | Default | Meaning |
 |-----|------|---------|---------|
 | `maxBatchIssues` | int | `3` | max issues the PM creates per batch |
@@ -91,14 +95,8 @@ into an existing project while preserving project-specific values.
 
 ### `notifications.telegram`
 
-| Key | Type | Default | Meaning |
-|-----|------|---------|---------|
-| `enabled` | bool | `false` | master switch |
-| `botTokenEnv` | string | `"TELEGRAM_BOT_TOKEN"` | env var holding the bot token |
-| `chatIdEnv` | string | `"TELEGRAM_CHAT_ID"` | env var holding the chat id |
-| `notifyOnDone` | bool | `true` | notify on project done |
-| `notifyOnStopped` | bool | `true` | notify on loop stopped |
-| `notifyOnNeedsHuman` | bool | `true` | notify when human attention is needed |
+Telegram notification knobs — canonical reference is
+[telegram.md](telegram.md#config) (config table, events, behavior).
 
 ### `logging`
 

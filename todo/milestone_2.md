@@ -1,7 +1,7 @@
 # Milestone 2: `/loop-seed` Initiation & Repo Creation
 
 **Depends on:** Milestone 0, Milestone 1
-**Reference:** plan.md §2.2, §3.1, §8.1–8.5, §28 "Milestone 2"
+**Reference:** original build plan (§2.2, §3.1, §8.1–8.5, §28 "Milestone 2"; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
@@ -12,7 +12,7 @@ Build the initiation portion of `/loop-seed`: clarification, repo naming, repo e
 ### Clarification
 - [x] Implement `extensions/seed/clarify.js`: ask 3–6 high-value questions based on the project description.
 - [x] Support the "use assumptions" escape hatch to proceed automatically.
-- [x] Store clarification state in `{workspace}/.pi/state/initiation.json` (see plan.md §8.2 schema).
+- [x] Store clarification state in `{workspace}/.pi/state/initiation.json` (see original plan §8.2 schema).
 
 ### Repo naming
 - [x] Implement `extensions/seed/repo-name.js`:
@@ -27,7 +27,7 @@ Build the initiation portion of `/loop-seed`: clarification, repo naming, repo e
 - [x] Create `.pi/` state directory inside the workspace.
 - [x] Enforce "one active project per machine":
   - read `~/.auto-pi/current-project.json`
-  - if another project is active, refuse with the message from plan.md §2.2 and exit
+  - if another project is active, refuse with the message from original plan §2.2 and exit
   - otherwise write `current-project.json` with projectName, repo, workspace, startedAt, status.
 
 ## Acceptance Criteria

@@ -43,6 +43,7 @@ import {
 	repoExists,
 } from "./repo-name.js";
 import { scaffoldProject, buildContext } from "./scaffold.js";
+import { warnSuppressed } from "../loop/result.js";
 import { writeProjectConfig } from "./config.js";
 import { validateConfig } from "../../skills/config/core.js";
 
@@ -194,7 +195,9 @@ async function cloneRepo(workspace, repoName, owner, repoFullName) {
 		// Fallback: init an empty repo locally and point it at the remote.
 		// git clone cleans up its own partial output on failure, but be defensive
 		// and remove anything left behind before re-initialising.
-		await rm(workspace, { recursive: true, force: true }).catch(() => {});
+		await rm(workspace, { recursive: true, force: true }).catch((err) =>
+			warnSuppressed("seed.clone-cleanup", err),
+		);
 		await mkdir(workspace, { recursive: true });
 		await execa("git", ["init", "-b", DEFAULT_BRANCH], { cwd: workspace, reject: false });
 		await execa("git", ["remote", "add", "origin", url], { cwd: workspace, reject: false });
@@ -647,39 +650,18 @@ export async function runSeed(description, io = {}, opts = {}) {
 
 /**
  * Launch the loop process detached under nohup (plan.md §13.1 / `npm run loop`
- * auto-start during /loop-seed). The loop script resolves the active project itself,
- * so we only need to give it the workspace cwd and redirect output to the loop
- * log.
+ * auto-start during /loop-seed).
+ *
+ * Canonical implementation lives in `extensions/loop/orchestrator.js`
+ * (`startLoopDetached`); this wrapper is kept so existing importers of
+ * `extensions/seed/core.js` keep working.
  *
  * @param {string} workspace absolute project root
  * @returns {Promise<{ ok: boolean, pid?: number, message?: string }>}
  */
 export async function startLoopDetached(workspace) {
-	const { mkdir } = await import("node:fs/promises");
-	const loopScript = join(dirname(new URL(import.meta.url).pathname), "..", "..", "scripts", "loop.js");
-	const logFile = join(workspace, ".pi", "logs", "loop.out");
-	try {
-		await mkdir(join(workspace, ".pi", "logs"), { recursive: true });
-		// Propagate the resolved provider/model into the detached loop process so
-		// it (and every persona it spawns) defaults to the intended model even
-		// though nohup does not inherit the interactive session's PI_* env vars.
-		const { providerEnv } = await import("../loop/provider-env.js");
-		const env = providerEnv();
-		// Redirect output to the loop log and print the background PID. `setsid`
-		// places the loop in its own session/process group with NO controlling
-		// terminal, so the loop (and every persona it spawns) never inherits the
-		// interactive tty — otherwise a spawned `pi` persona can grab the tty for
-		// its TUI and hang forever instead of completing the batch run.
-		const shell = await execa("bash", ["-c", `setsid nohup node "${loopScript}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
-			cwd: workspace,
-			env,
-			reject: false,
-		});
-		const pid = parseInt((shell.stdout || "").trim(), 10);
-		return { ok: true, pid: pid || undefined };
-	} catch (err) {
-		return { ok: false, message: err?.message || String(err) };
-	}
+	const { startLoopDetached: start } = await import("../loop/orchestrator.js");
+	return start(workspace);
 }
 
 /** Re-exported so callers can detect the assumptions escape hatch. */

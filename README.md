@@ -36,19 +36,9 @@ npm run seed -- "Build a markdown notes app" --yes    # proceed on assumptions
 
 ## Prerequisites
 
-- **Linux** (the harness and its shell tooling target a Linux environment; macOS is
-  not currently supported).
-- **Node.js** (≥ 18) and **npm**.
-- **git**.
-- **GitHub CLI `gh`** — used for authentication, repo creation, and API calls.
-- **Pi** (`@earendil-works/pi-coding-agent`) — the coding agent the harness builds on.
-- **Pi model configuration** — at least one provider/model configured for Pi, e.g.
-  the bundled `joingonka` / `gonkaapi` providers (see
-  [`extensions/joingonka.ts`](extensions/joingonka.ts),
-  [`extensions/gonkaapi.ts`](extensions/gonkaapi.ts)). Set the matching API key:
-  `export JOINGONKA_API_KEY=...` or `export GONKAAPI_API_KEY=...`.
-- **GitHub account** — with a token that can create repos, issues, PRs, and
-  workflow runs. See [GitHub Token setup](#github-token-setup).
+Linux, Node.js ≥ 18 + npm, git, GitHub CLI `gh`, Pi with a configured
+provider/model, and a GitHub token that can create repos/issues/PRs/workflow
+runs. See [`docs/installation.md`](docs/installation.md) for the full list.
 
 Run `/loop-doctor` (or `npm run doctor`) to validate all prerequisites — it reports
 exactly what is missing and how to fix it.
@@ -122,43 +112,19 @@ To verify the installation loaded cleanly, start Pi and confirm `/loop-seed`,
 
 ## Continue on another machine (`/loop-pull`)
 
-`auto-pi` makes it easy to **continue a project on a different machine**. A seeded
-project's repo on GitHub contains the project code plus the committed
-`.pi/config.json` — the per-machine local state (`.pi/state/`, `.pi/logs/`,
-`.pi/runs/`, `.pi/local.json`) is git-ignored and stays on the machine it was
-seeded on.
-
-To pick the project up on a new machine:
+`auto-pi` makes it easy to **continue a project on a different machine**:
+`/loop-pull` clones the project's GitHub repo into the same workspace layout
+`/loop-seed` uses, verifies it is an auto-pi project, records it as the
+**active** project, and starts the loop.
 
 ```bash
 pi install /path/to/auto-pi
-/loop-pull https://github.com/AntonLapshin/ape-kingdom
+/loop-pull https://github.com/owner/repo   # or: owner/repo, SSH URL, --no-start
 ```
 
-`/loop-pull` (`npm run pull` non-interactively) clones the repo into the same
-`~/.auto-pi/workspaces/{owner}/{repo}/repo` layout `/loop-seed` uses, verifies it
-is an auto-pi project (committed `.pi/config.json`), recreates the git-ignored
-`.pi/state/initiation.json` marker so `/loop-switch` and the loop-recognition
-helpers see it as a locally-seeded project, records it as the **active** project,
-and starts the loop.
-
-After `/loop-pull`, every other auto-pi command works exactly as if the project
-had been seeded here:
-
-```bash
-/loop-switch            # list local projects and switch (the pulled one is listed)
-/loop-status            # active project, loop, last run, issues/PRs, budget
-/loop-logs              # latest local logs
-/loop-restart           # safely restart the loop
-```
-
-The argument can be a full GitHub URL, an `owner/repo` pair, or an SSH URL:
-
-```bash
-/loop-pull https://github.com/AntonLapshin/ape-kingdom
-/loop-pull AntonLapshin/ape-kingdom
-npm run pull -- AntonLapshin/ape-kingdom --no-start
-```
+See [`docs/commands.md#loop-pull`](docs/commands.md#loop-pull) for the full
+flow (argument forms, `--no-start`/`--yes`, what counts as an auto-pi
+project).
 
 ## GitHub Token setup
 
@@ -206,18 +172,22 @@ npm run ui:dev      # Vite dev server on http://localhost:5173
 Open **http://localhost:5173**. The dashboard reads the deterministic,
 structured ledgers the loop writes to the active project's `.pi/logs/`
 (`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
-See `ui/README.md` for details.
+See [`docs/ui.md`](docs/ui.md) for the full operator guide.
 
 ![auto-pi monitor dashboard](docs/screenshots/monitor.png)
 
 ## Further reading
 
+- [`docs/architecture.md`](docs/architecture.md) — harness map, state model, label glossary, command mapping
 - [`docs/commands.md`](docs/commands.md) — command-by-command usage
 - [`docs/configuration.md`](docs/configuration.md) — config reference & validation
 - [`docs/personas.md`](docs/personas.md) — PM, Engineer, Review Engineer roles
+- [`docs/ui.md`](docs/ui.md) — UI monitor operator guide
 - [`docs/github-pages.md`](docs/github-pages.md) — Pages deployment & health
 - [`docs/telegram.md`](docs/telegram.md) — optional Telegram notifications
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — common issues & fixes
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — developing the harness
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
 
 ## License
 

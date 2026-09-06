@@ -1,7 +1,7 @@
 # Milestone 9: Review Engineer Persona
 
 **Depends on:** Milestone 8
-**Reference:** plan.md §18, §19, §22, §28 "Milestone 9"
+**Reference:** original build plan (§18, §19, §22, §28 "Milestone 9"; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
@@ -9,8 +9,8 @@ Implement the Review Engineer persona: PR verification with physically verifiabl
 
 ## Tasks
 
-- [x] Write `personas/review-engineer.md` persona prompt (plan.md §18; verify against testing policy §25.2, ui-thin-layer §25.3, done-definition §25.4).
-- [x] Implement Reviewer context packer: PR diff summary, PR body, linked issue, acceptance criteria, test output, coverage output, relevant policy excerpts (plan.md §21.1).
+- [x] Write `personas/review-engineer.md` persona prompt (original plan §18; verify against testing policy §25.2, ui-thin-layer §25.3, done-definition §25.4).
+- [x] Implement Reviewer context packer: PR diff summary, PR body, linked issue, acceptance criteria, test output, coverage output, relevant policy excerpts (original plan §21.1).
 
 ### Verification commands
 - [x] Run, per PR:
@@ -21,16 +21,16 @@ Implement the Review Engineer persona: PR verification with physically verifiabl
   npm run test:coverage
   npm run build
   ```
-- [x] Enforce 100% core coverage (plan.md §19).
+- [x] Enforce 100% core coverage (original plan §19).
 
 ### Review rules
-- [x] Allowed review reasons (plan.md §18.1): failing tests, missing tests, missing acceptance coverage, broken build, lint failure, coverage failure, business logic in UI, unsafe dependency, secret-like strings, incorrect core behavior.
+- [x] Allowed review reasons (original plan §18.1): failing tests, missing tests, missing acceptance coverage, broken build, lint failure, coverage failure, business logic in UI, unsafe dependency, secret-like strings, incorrect core behavior.
 - [x] Disallow subjective/style/visual comments.
-- [x] Every comment follows `PI-REVIEW type=... severity=blocking|...` format with verification command, expected outcome, and location (plan.md §18.3).
-- [x] Missing-test detection across cases: empty/invalid input, duplicates, case sensitivity, boundaries, error/async paths, malformed data, missing fields (plan.md §18.4).
+- [x] Every comment follows `PI-REVIEW type=... severity=blocking|...` format with verification command, expected outcome, and location (original plan §18.3).
+- [x] Missing-test detection across cases: empty/invalid input, duplicates, case sensitivity, boundaries, error/async paths, malformed data, missing fields (original plan §18.4).
 - [x] Optionally create follow-up "Add missing tests for PR #N" issues.
 
-### Approval conditions (plan.md §18.5)
+### Approval conditions (original plan §18.5)
 - [x] Approve only when: ci/lint/test/coverage/build all pass, core coverage 100%, PR scoped to issue, acceptance criteria covered, no unresolved testable comments, no security/secrets.
 - [x] On approve: approve PR, add `pi:approved` + `pi:merge-ready`, remove `pi:review-needed` + `pi:changes-requested`.
 - [x] On issues: request changes, add `pi:changes-requested`, remove `pi:review-needed`.

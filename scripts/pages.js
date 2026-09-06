@@ -75,22 +75,22 @@ async function main() {
 	if (!repo) {
 		repo = await activeRepo();
 		if (!repo) {
-			process.stderr.write("[auto-pi pages] no active project found and no --repo given\n");
+			process.stderr.write("[auto-pi:pages] no active project found and no --repo given\n");
 			process.exit(2);
 		}
 	}
 	const [owner, name] = repo.split("/");
 	if (!owner || !name) {
-		process.stderr.write(`[auto-pi pages] invalid repo: ${repo}\n`);
+		process.stderr.write(`[auto-pi:pages] invalid repo: ${repo}\n`);
 		process.exit(2);
 	}
 
 	const status = await checkDeploymentStatus(owner, name, gh);
 	if (!status.ok) {
-		process.stderr.write(`[auto-pi pages] ${status.error}\n`);
+		process.stderr.write(`[auto-pi:pages] ${status.error}\n`);
 		process.exit(2);
 	}
-	process.stdout.write(`[auto-pi pages] ${owner}/${name}: state=${status.state}\n`);
+	process.stdout.write(`[auto-pi:pages] ${owner}/${name}: state=${status.state}\n`);
 
 	if (status.state !== "failed") {
 		process.exit(0);
@@ -98,24 +98,24 @@ async function main() {
 
 	if (dryRun) {
 		process.stdout.write(
-			`[auto-pi pages] deployment failed; would create a pi:needs-human issue (dry-run)\n`,
+			`[auto-pi:pages] deployment failed; would create a pi:needs-human issue (dry-run)\n`,
 		);
 		process.exit(1);
 	}
 
 	const result = await createOrUpdateNeedsHumanIssue(owner, name, gh, { run: status.run });
 	if (!result.ok) {
-		process.stderr.write(`[auto-pi pages] failed to create needs-human issue: ${result.error}\n`);
+		process.stderr.write(`[auto-pi:pages] failed to create needs-human issue: ${result.error}\n`);
 		process.exit(2);
 	}
 	process.stdout.write(
-		`[auto-pi pages] ${result.created ? "created" : "updated"} needs-human issue ` +
+		`[auto-pi:pages] ${result.created ? "created" : "updated"} needs-human issue ` +
 			`(number ${result.issue?.number || "?"}) for Pages deployment failure\n`,
 	);
 	process.exit(1);
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi pages] error: ${err?.stack || err}\n`);
+	process.stderr.write(`[auto-pi:pages] error: ${err?.stack || err}\n`);
 	process.exit(2);
 });

@@ -1,6 +1,11 @@
 # Auto-Pi Milestone Breakdown
 
-Breakdown of `plan.md` into implementable milestones, following the plan's Section 28 ("Implementation Milestones"). Each `todo/milestone_N.md` contains the concrete tasks and acceptance criteria for that milestone.
+Breakdown of the original build plan into implementable milestones. Each `todo/milestone_N.md` contains the concrete tasks and acceptance criteria for that milestone.
+
+> Historical note: the milestone files reference the original `plan.md`
+> section numbers (e.g. "original plan §28"). That planning document is not
+> versioned in this repo; the canonical references are now the top-level
+> `README.md` and `docs/` (see `docs/architecture.md` for the harness map).
 
 The dependency order forms a sequential build where earlier stages unlock later ones.
 
@@ -26,7 +31,7 @@ The dependency order forms a sequential build where earlier stages unlock later 
 - **Build order:** M0 → M1 → M2 → M3→ M4 → M5 → M6 → M7 → M8 → M9 → M10 → M11 → M12 → M13.
 - **Critical path to a working loop:** M0 → M2 → M3 → M4 → M5 → M6 (loop runs, then M7/M8/M9 make it autonomous).
 - **Personas (M7, M8, M9)** are the core value: PM breaks work into small tested slices; Engineer implements + merges; Review Engineer enforces physically verifiable quality and 100% core coverage.
-- **M12 (Pilot)** is the validation gate — the plan's §27 lifecycle example is the canonical run-through.
+- **M12 (Pilot)** is the validation gate — the original plan's §27 lifecycle example is the canonical run-through.
 - **M13 (Hardening)** productionizes with budget limits, rate limits, retries, and the remaining `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config` commands.
 
 ## Cross-cutting requirements (apply throughout)
@@ -35,4 +40,9 @@ The dependency order forms a sequential build where earlier stages unlock later 
 - Fresh persona sessions only — personas never remember prior conversations (M6).
 - Core business logic in `src/core` with 100% coverage; UI stays a thin, dumb layer (M3, M7–M9).
 - No secrets in logs, context, or PRs (M10, M13).
-- `/loop-seed` and `/loop-stop` are the minimum required commands; `/loop-status`, `/loop-doctor`, `/loop-logs`, `/loop-resume`, `/loop-sync-config` strongly recommended (M1, M3, M13).
+- The full command surface is 11 slash commands (`/loop-seed`, `/loop-pull`,
+  `/loop-stop`, `/loop-restart`, `/loop-switch`, `/loop-status`, `/loop-logs`,
+  `/loop-resume`, `/loop-sync-config`, `/loop-provider`, `/loop-doctor`) plus
+  `/loop` — each with a fallback `npm run <cmd>` / `node scripts/<cmd>.js`
+  entry (see [`scripts/`](../scripts/README.md) and
+  [`docs/commands.md`](../docs/commands.md)).

@@ -29,6 +29,7 @@ import {
 	readConfiguredProviderModel,
 	writeProviderModel,
 } from "./provider-config.js";
+import { warnSuppressed } from "./result.js";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("loop", {
@@ -82,7 +83,7 @@ export default function (pi: ExtensionAPI) {
 					cwd: workspace,
 					env: providerEnv(),
 					reject: false,
-				}).catch(() => {});
+				}).catch((err) => warnSuppressed("loop.start-detached", err));
 				notify(
 					`Loop started for ${activeRes.active.repo || workspace} (detached). Check .pi/logs/loop.out.`,
 					"success",

@@ -19,7 +19,6 @@ slash commands (`/loop-seed`, `/loop`, `/loop-stop`, `/loop-restart`, `/loop-swi
 | `doctor.js`        | implemented | M1 |
 | `notify.js`        | implemented | M11 |
 | `pages.js`         | implemented | M4 |
-| `stub.js`          | shared stub helper | — |
 
 Each command shares its logic with the interactive slash command via a common
 core module, so the CLI and the interactive command report identical results.

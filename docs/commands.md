@@ -2,6 +2,8 @@
 
 The auto-pi harness exposes slash commands (interactive in Pi) and matching
 `npm run <cmd>` / `node scripts/<cmd>.js` fallbacks (non-interactive).
+Label vocabulary (`pi:*`, `size:*`, …) is defined once in the
+[label glossary](architecture.md#label-glossary).
 
 | Command | Purpose | Fallback CLI |
 |---------|---------|--------------|
@@ -17,7 +19,7 @@ The auto-pi harness exposes slash commands (interactive in Pi) and matching
 | `/loop-doctor` | Validate environment prerequisites | `npm run doctor` |
 | `/loop` | Start (or report) the autonomous loop | `npm run loop` |
 
-## `/loop-seed <description>`
+## `/loop-seed`
 
 Initiates a new project: stop the currently-active project's loop (if any) →
 **explicit project name** → clarification → repo naming → repo creation → local
@@ -54,7 +56,7 @@ npm run stop
 > `/loop-resume` or `/loop-restart` it anytime. To move to another project, use
 > `/loop-switch`; to create a brand-new project, use `/loop-seed`.
 
-## `/loop-switch [<project>]`
+## `/loop-switch`
 
 Switches the active project to another **locally-seeded** project. It safely
 stops the current project's loop (writing the stop file and waiting for it to
@@ -76,7 +78,7 @@ npm run switch -- --no-start  # switch without auto-starting the loop
 > The previous project is not deleted — its workspace, state, and lock remain
 > intact, so you can switch back to it at any time.
 
-## `/loop-pull <repo-url>`
+## `/loop-pull`
 
 Continues an **existing auto-pi project on this machine** from its GitHub repo —
 the companion to `/loop-seed` for working across machines. It stops the
@@ -90,10 +92,10 @@ project, and starts the loop.
 The argument can be a full GitHub URL, an `owner/repo` pair, or an SSH URL:
 
 ```bash
-/loop-pull https://github.com/AntonLapshin/ape-kingdom
-/loop-pull AntonLapshin/ape-kingdom
-npm run pull -- AntonLapshin/ape-kingdom
-npm run pull -- https://github.com/AntonLapshin/ape-kingdom --no-start
+/loop-pull https://github.com/owner/repo
+/loop-pull owner/repo
+npm run pull -- owner/repo
+npm run pull -- https://github.com/owner/repo --no-start
 ```
 
 Flags:
@@ -110,7 +112,7 @@ had been seeded on this machine: `/loop-switch`, `/loop-status`, `/loop-logs`,
 > `.pi/config.json` (which `/loop-seed` writes and commits). A repo without one
 > is rejected with a clear message.
 
-## `/loop-restart [--timeout N]`
+## `/loop-restart`
 
 Safely restarts the autonomous loop for the **same** active project. Unlike
 `/loop-stop`, the active-project record is **preserved**, so the restarted loop
@@ -145,7 +147,7 @@ open issues/PRs, and budget usage (tokens today / cost today / limits).
 /loop-status
 ```
 
-## `/loop-logs [--tail N]`
+## `/loop-logs`
 
 Shows the latest local logs (prefers `latest.log`, then `summary.md`, then
 `loop.out`). `--tail N` controls the number of lines (default 40).
@@ -154,6 +156,11 @@ Shows the latest local logs (prefers `latest.log`, then `summary.md`, then
 /loop-logs
 /loop-logs --tail 100
 ```
+
+> Exit-code note: when no logs exist yet, the interactive `/loop-logs`
+> reports it as an info notification, while `npm run logs` exits 1 so
+> scripts can detect the empty case. Both share the same tail logic
+> (`extensions/loop/log-helpers.js`).
 
 ## `/loop-resume`
 
@@ -179,7 +186,7 @@ up new default knobs.
 /loop-sync-config
 ```
 
-## `/loop-provider [--provider <name>] [--model <id>] [--show] [--no-restart]`
+## `/loop-provider`
 
 Shows the LLM **provider/model the loop is currently using** and lets you switch
 it, mirroring pi's built-in `/model` command but for the autonomous loop. The

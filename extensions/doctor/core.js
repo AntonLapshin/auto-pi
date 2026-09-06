@@ -36,6 +36,17 @@ export const REQUIRED_SCOPES = ["repo", "workflow"];
 export const WORKSPACE_DIR = join(homedir(), ".auto-pi");
 
 /**
+ * Harness-bundled Pi providers (mirrors `extensions/joingonka.ts` +
+ * `extensions/gonkaapi.ts`). Kept as a constant next to the remediation hint
+ * that names them, so renaming/adding a provider updates both together.
+ */
+export const BUNDLED_PROVIDERS = ["joingonka", "gonkaapi"];
+
+/** Remediation hint naming the bundled providers (built from {@link BUNDLED_PROVIDERS}). */
+export const BUNDLED_PROVIDER_HINT =
+	`No Pi model is selected. Start pi and pick a provider/model (e.g. the bundled ${BUNDLED_PROVIDERS.join("/")} providers) with \`/model\`, or set it in your pi settings. Ensure the matching API key env var is exported.`;
+
+/**
  * Safely run a command, returning { ok, stdout, stderr, exitCode } without throwing.
  * Used for read-only prerequisite probes.
  */
@@ -245,7 +256,7 @@ export async function runChecks(opts = {}) {
 			detail: configured ? `${provider}/${model}` : "none detected",
 			hint: configured
 				? ""
-				: "No Pi model is selected. Start pi and pick a provider/model (e.g. the bundled joingonka/gonkaapi) with `/model`, or set it in your pi settings. Ensure the matching API key env var is exported.",
+				: BUNDLED_PROVIDER_HINT,
 			required: true,
 			bestEffort: false,
 		});

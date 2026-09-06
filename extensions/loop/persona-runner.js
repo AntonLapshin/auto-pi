@@ -37,6 +37,30 @@ import {
 } from "../../skills/logging/core.js";
 import { backoffDelay, sleep } from "../../skills/github/core.js";
 import { resolveProviderModel, providerEnv } from "./provider-env.js";
+import { warnSuppressed } from "./result.js";
+
+/**
+ * Fallback persona timeouts — sourced once from `config/config.default.json`
+ * (the single source of truth) so the code default can never drift from the
+ * documented default. The trailing `|| <n>` only applies when the defaults
+ * file itself is unreadable (e.g. packaged installs); config values always win.
+ */
+function loadDefaultMs(path, fallback) {
+	try {
+		const raw = readFileSync(new URL("../../config/config.default.json", import.meta.url), "utf8");
+		const v = Number(JSON.parse(raw)?.loop?.[path]);
+		if (Number.isFinite(v) && v > 0) return v;
+	} catch (err) {
+		warnSuppressed("persona.config-defaults", err);
+	}
+	return fallback;
+}
+
+/** Fallback inactivity timeout (ms) — mirrors `loop.personaInactivityMs`. */
+export const DEFAULT_PERSONA_INACTIVITY_MS = loadDefaultMs("personaInactivityMs", 600000);
+
+/** Fallback wall-clock cap (ms) — mirrors `loop.personaTimeoutMs`. */
+export const DEFAULT_PERSONA_TIMEOUT_MS = loadDefaultMs("personaTimeoutMs", 3600000);
 
 /**
  * Resolve the provider/model a persona session should use. See
@@ -55,6 +79,12 @@ export function resolvePiModelSync(opts = {}) {
 /**
  * Default number of retries for a failed persona (LLM) invocation, in addition
  * to the first attempt (config.pi.maxRetries).
+ *
+ * NOTE — retry asymmetry is intentional: persona retries are FEW and SLOW
+ * (2 retries, 5s base) because each attempt spawns a full LLM session (tens of
+ * seconds, real token cost), while `gh` API retries in `skills/github/core.js`
+ * are MANY and FAST (3 retries, 1s base) because API calls are cheap and
+ * sub-second. Do not "align" these without accounting for the cost difference.
  */
 export const DEFAULT_PERSONA_MAX_RETRIES = 2;
 
@@ -434,28 +464,34 @@ export function buildChildEnv({ config, env } = {}) {
  * @returns {Promise<{ exitCode: number, stdout: string, stderr: string, tokens?: object }>}
  */
 /**
- * Persona inactivity timeout (ms) from config, default 10 minutes.
+ * Persona inactivity timeout (ms) from config.
  * A persona that emits no stdout/stderr output for this long is considered
  * hung (idle socket / zero CPU) and is killed + retried rather than stalling
  * the loop. 0 disables.
+ *
+ * The fallback default is sourced from `config/config.default.json`
+ * (`loop.personaInactivityMs`) — the single source of truth — not hardcoded.
  */
 export function personaInactivityMs(config = {}) {
 	const v = Number(config?.loop?.personaInactivityMs);
 	if (Number.isFinite(v) && v > 0) return v;
-	return 600000; // 10 minutes
+	return DEFAULT_PERSONA_INACTIVITY_MS;
 }
 
 /**
- * Persona hard wall-clock cap (ms) from config, default 60 minutes. This is a
+ * Persona hard wall-clock cap (ms) from config. This is a
  * backstop for the inactivity timeout: some hangs keep emitting a slow trickle
  * of output (defeating inactivity detection) while never completing or making
  * real progress. The wall-clock cap guarantees the loop can never be blocked
  * on a single persona longer than this, regardless of output. 0 disables.
+ *
+ * The fallback default is sourced from `config/config.default.json`
+ * (`loop.personaTimeoutMs`) — the single source of truth — not hardcoded.
  */
 export function personaMaxMs(config = {}) {
 	const v = Number(config?.loop?.personaTimeoutMs);
 	if (Number.isFinite(v) && v > 0) return v;
-	return 3600000; // 60 minutes
+	return DEFAULT_PERSONA_TIMEOUT_MS;
 }
 
 export async function executePi(args, childEnv, workspace, opts = {}) {
@@ -482,8 +518,13 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 
 		// Kill a hung persona and surface a retryable stall (exitCode null) so the
 		// loop's retry logic recovers instead of blocking the whole loop forever.
+		// The child is spawned detached (its own process group) so we can kill the
+		// WHOLE group, not just the shell: a hung persona may have spawned
+		// grandchildren (e.g. a `sleep`) that would otherwise survive the SIGKILL
+		// and keep the stdio pipes open, leaving the parent event loop alive.
 		const killHung = () => {
 			const hung = Boolean(child && !child.killed);
+			try { process.kill(-child.pid, "SIGKILL"); } catch {}
 			try { child?.kill("SIGKILL"); } catch {}
 			finish({ exitCode: null, timedOut: true, hung, stdout, stderr });
 		};
@@ -504,6 +545,10 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 				cwd: workspace,
 				env: childEnv,
 				stdio: ["ignore", "pipe", "pipe"],
+				// Own process group so killHung can SIGKILL the whole tree (including
+				// any grandchildren like a `sleep`) instead of leaving orphans that
+				// keep the stdio pipes open and the parent event loop alive.
+				detached: true,
 			});
 		} catch (err) {
 			finish({ exitCode: 1, stdout: "", stderr: String(err?.message || err) });
@@ -696,9 +741,13 @@ export function parseJsonModeOutput(raw) {
  * @returns {Promise<{ ok, exitCode, stdout, stderr, runDir, tokens, durationSeconds }>}
  */
 export async function finalizePersonaRun({ workspace, persona, runId, config, res, startedAt, finishedAt, runDir }) {
-	// Capture output in the run dir.
-	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch(() => {});
-	await writeFile(join(runDir, "stderr.txt"), res.stderr || "", "utf8").catch(() => {});
+	// Capture output in the run dir (best-effort; the ledger record below is authoritative).
+	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch((err) =>
+		warnSuppressed("persona.run-capture", err),
+	);
+	await writeFile(join(runDir, "stderr.txt"), res.stderr || "", "utf8").catch((err) =>
+		warnSuppressed("persona.run-capture", err),
+	);
 
 	// M10: token/cost accounting. When the run went through pi's JSON mode,
 	// `executePi` already extracted the provider-reported usage into `res.tokens`
@@ -728,19 +777,19 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		durationSeconds,
 		gitSha,
 	});
-	await appendRunRecord(workspace, record, config).catch(() => {});
+	await appendRunRecord(workspace, record, config).catch((err) => warnSuppressed("persona.run-record", err));
 	await accumulateTokens(workspace, {
 		tokensInput: tokens.tokensInput,
 		tokensOutput: tokens.tokensOutput,
 		tokensTotal: tokens.tokensTotal,
 		runs: 1,
-	}, config).catch(() => {});
+	}, config).catch((err) => warnSuppressed("persona.token-usage", err));
 	if (res.exitCode !== 0) {
 		await appendErrorRecord(workspace, {
 			runId,
 			persona,
 			error: (res.stderr || res.stdout || "").slice(0, 2000),
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("persona.error-record", err));
 	}
 
 	// --- Structured progress events + LLM health (auto-pi UI observability) ---
@@ -760,7 +809,7 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 			durationSeconds,
 			gitSha,
 		},
-	}, config).catch(() => {});
+	}, config).catch((err) => warnSuppressed("persona.finished-event", err));
 
 	// Parse git/gh commands the persona executed and emit them as events. Each
 	// command is logged once (git.command / gh.command) and, when it maps to a
@@ -775,7 +824,7 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 			persona,
 			runId,
 			data: cls.data,
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("persona.command-event", err));
 	}
 
 	// LLM-provider health: one record per invocation outcome.
@@ -788,7 +837,7 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		exitCode: res.exitCode,
 		durationMs: Math.round(durationSeconds * 1000),
 		reason: ok ? "" : (res.stderr || res.stdout || "").slice(0, 200),
-	}, config).catch(() => {});
+	}, config).catch((err) => warnSuppressed("persona.health-record", err));
 
 	return {
 		ok,
@@ -885,7 +934,7 @@ export async function runPersonaWithRetry(opts = {}) {
 				exitCode: res.exitCode,
 				reason,
 			},
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("persona.retry-event", err));
 		await appendHealth(workspace, {
 			provider: config?.pi?.provider || "",
 			model: config?.pi?.model || "",
@@ -896,7 +945,7 @@ export async function runPersonaWithRetry(opts = {}) {
 			retries: retries + 1,
 			retryable,
 			reason,
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("persona.retry-health", err));
 		await sleep(delayMs);
 		retries += 1;
 	}

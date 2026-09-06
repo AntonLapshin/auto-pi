@@ -13,6 +13,9 @@
  *
  * No-ops (exit 0) without error when notifications are disabled or the required
  * env vars are absent — matching the loop's non-fatal behavior.
+ *
+ * Exit codes: 0 ok (including the disabled/missing-env no-op skip) ·
+ * 1 operational failure (no active project) · 2 usage error (bad --event).
  */
 
 import { join } from "node:path";
@@ -78,14 +81,14 @@ async function main() {
 	let workspace = valueOf("--workspace") || null;
 
 	if (!event || !EVENTS.has(event)) {
-		process.stderr.write(`[notify] invalid/missing --event (expected one of: ${[...EVENTS].join(", ")})\n`);
+		process.stderr.write(`[auto-pi:notify] invalid/missing --event (expected one of: ${[...EVENTS].join(", ")})\n`);
 		process.exit(2);
 	}
 
 	if (!workspace) {
 		const active = await readActiveProject();
 		if (!active.ok) {
-			process.stderr.write(`[notify] ${active.error}\n`);
+			process.stderr.write(`[auto-pi:notify] ${active.error}\n`);
 			process.exit(1);
 		}
 		workspace = active.active.workspace;
@@ -96,13 +99,15 @@ async function main() {
 	const result = await notifyEvent({ workspace, config, event, reason, completed });
 
 	// Disabled / missing env → no-op, exit 0 (non-fatal by design).
+	// NB: both branches exit 0 intentionally — a skipped notification must
+	// never fail the loop or a calling script.
 	if (!result.ok && result.reason) {
-		process.stdout.write(`[notify] skipped: ${result.reason}\n`);
+		process.stdout.write(`[auto-pi:notify] skipped: ${result.reason}\n`);
 	}
-	process.exit(result.ok ? 0 : 0);
+	process.exit(0);
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi notify] error: ${err?.stack || err}\n`);
+	process.stderr.write(`[auto-pi:notify] error: ${err?.stack || err}\n`);
 	process.exit(2);
 });

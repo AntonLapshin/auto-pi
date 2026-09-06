@@ -252,7 +252,7 @@ re-dispatches you while open work remains).
 
 #### Issue-creation rules (plan.md §16.3, §23.1)
 
-- **Size**: each issue must be `size:XS` or `size:S` — small enough for ONE
+- **Size**: each issue must be `size:xs` or `size:s` — small enough for ONE
   Engineer session. If a piece of work is too large, **split it into a milestone**
   and create only its first small sub-issues now.
 - **Labels**: every issue gets

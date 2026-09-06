@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fallback CLI entry for the auto-pi `/resume` command (M13).
+ * Fallback CLI entry for the auto-pi `/loop-resume` command (M13).
  *
  * Resumes a stopped/paused project's loop: removes the stop marker and starts
  * the loop (if not already running).
@@ -11,11 +11,17 @@
  * Flags:
  *   --once   run a single cycle instead of starting the infinite loop
  *   --help   show usage
+ *
+ * Shares its stop-file handling with the interactive `/loop-resume` slash
+ * command (`extensions/harness.ts`) via `extensions/loop/log-helpers.js`.
+ *
+ * Exit codes: 0 ok · 1 operational failure (no active project / cycle failed) ·
+ * 2 usage/config error.
  */
 
-import { join } from "node:path";
-import { rm } from "node:fs/promises";
-import { readActiveProject, checkLock } from "../extensions/loop/orchestrator.js";
+import { readActiveProject, checkLock, startLoopDetached } from "../extensions/loop/orchestrator.js";
+import { removeStopFile } from "../extensions/loop/log-helpers.js";
+import { EXIT_OK, EXIT_OPERATIONAL, EXIT_USAGE } from "../extensions/loop/result.js";
 
 function usage() {
 	return [
@@ -34,26 +40,21 @@ async function main() {
 	const argv = process.argv.slice(2);
 	if (argv.includes("--help") || argv.includes("-h")) {
 		process.stdout.write(usage() + "\n");
-		process.exit(0);
+		process.exit(EXIT_OK);
 	}
 	const once = argv.includes("--once");
 
 	const activeRes = await readActiveProject();
 	if (!activeRes.ok) {
-		process.stderr.write(`[resume] ${activeRes.error}\n`);
-		process.stderr.write(`[resume] Use /loop-seed (npm run seed) to start a new project.\n`);
-		process.exit(1);
+		process.stderr.write(`[auto-pi:resume] ${activeRes.error}\n`);
+		process.stderr.write(`[auto-pi:resume] Use /loop-seed (npm run seed) to start a new project.\n`);
+		process.exit(EXIT_OPERATIONAL);
 	}
 	const workspace = activeRes.active.workspace;
 
-	// Remove the stop file.
-	const stopFile = join(workspace, ".pi", "state", "stop");
-	try {
-		await rm(stopFile, { force: true });
-		process.stdout.write(`[resume] stop marker removed.\n`);
-	} catch {
-		// best-effort
-	}
+	// Remove the stop file (best-effort, never throws).
+	await removeStopFile(workspace);
+	process.stdout.write(`[auto-pi:resume] stop marker removed.\n`);
 
 	if (once) {
 		const { runLoopCycle } = await import("../extensions/loop/orchestrator.js");
@@ -61,34 +62,29 @@ async function main() {
 			log: (line) => process.stdout.write(`[loop] ${line}\n`),
 		});
 		process.stdout.write(result.message + "\n");
-		process.exit(result.ok ? 0 : 1);
+		process.exit(result.ok ? EXIT_OK : EXIT_OPERATIONAL);
 	}
 
 	// If a loop is already running, just report.
 	const lock = await checkLock(workspace);
 	if (lock.locked) {
-		process.stdout.write(`[resume] a loop is already running (PID ${lock.pid}); it will continue.\n`);
-		process.exit(0);
+		process.stdout.write(`[auto-pi:resume] a loop is already running (PID ${lock.pid}); it will continue.\n`);
+		process.exit(EXIT_OK);
 	}
 
-	// Start the loop detached under nohup. `setsid` puts the loop in its own
-	// session/process group with no controlling terminal so spawned persona `pi`
-	// sessions never inherit the interactive tty (which hangs them in batch
-	// mode); stdin is redirected from /dev/null so the loop never reads the
-	// shared tty.
-	const { execa } = await import("execa");
-	const script = join(process.cwd(), "scripts", "loop.js");
-	const logFile = join(workspace, ".pi", "logs", "loop.out");
-	const shell = await execa("bash", ["-c", `setsid nohup node "${script}" </dev/null > "${logFile}" 2>&1 & echo $!`], {
-		cwd: workspace,
-		reject: false,
-	});
-	const pid = parseInt((shell.stdout || "").trim(), 10);
-	process.stdout.write(`[resume] loop started (PID ${pid || "?"}); log: .pi/logs/loop.out\n`);
-	process.exit(0);
+	// Start the loop detached (shared `startLoopDetached` — same setsid/nohup
+	// launch with provider/model propagation as /loop-seed, /loop-pull,
+	// /loop-resume and /loop-restart).
+	const started = await startLoopDetached(workspace);
+	if (!started.ok) {
+		process.stderr.write(`[auto-pi:resume] could not start the loop: ${started.message}\n`);
+		process.exit(EXIT_OPERATIONAL);
+	}
+	process.stdout.write(`[auto-pi:resume] loop started (PID ${started.pid || "?"}); log: .pi/logs/loop.out\n`);
+	process.exit(EXIT_OK);
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi resume] error: ${err?.stack || err}\n`);
-	process.exit(2);
+	process.stderr.write(`[auto-pi:resume] error: ${err?.stack || err}\n`);
+	process.exit(EXIT_USAGE);
 });

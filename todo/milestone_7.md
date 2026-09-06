@@ -1,7 +1,7 @@
 # Milestone 7: PM Persona
 
 **Depends on:** Milestone 6
-**Reference:** plan.md §16, §23, §25, §28 "Milestone 7"
+**Reference:** original build plan (§16, §23, §25, §28 "Milestone 7"; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
@@ -9,20 +9,20 @@ Implement the PM persona: context packing, issue creation, PM-note handling, don
 
 ## Tasks
 
-- [x] Write `personas/pm.md` persona prompt (plan.md §16, §25 policies).
-- [x] Implement PM context packer that sends only: manifest, project-state, changelog, open issue summaries, open PR summaries, recent merged PR summaries, policy excerpts (plan.md §21.1 context rules).
+- [x] Write `personas/pm.md` persona prompt (original plan §16, §25 policies).
+- [x] Implement PM context packer that sends only: manifest, project-state, changelog, open issue summaries, open PR summaries, recent merged PR summaries, policy excerpts (original plan §21.1 context rules).
 - [x] Implement PM logic:
   - scan for open issues with PM notes (`PI-NOTE persona=PM`); if present, address/split/update state and resolve notes
   - if open issues exist without PM notes → skip turn
   - if no open issues → update `project-state.md`, decide done, else create small batch of issues (`limits.maxBatchIssues`, default 3)
 - [x] Issue-creation rules:
   - small enough for one Engineer session (`size:XS`/`size:S`)
-  - label per plan.md §23.1 (type, size, milestone)
-  - UI issues require core + view-model + thin component structure and tested logic (plan.md §16.4)
-  - milestone splitting for large work (plan.md §16.3)
+  - label per original plan §23.1 (type, size, milestone)
+  - UI issues require core + view-model + thin component structure and tested logic (original plan §16.4)
+  - milestone splitting for large work (original plan §16.3)
   - issue idempotency (avoid duplicate issues, use `<!-- pi:issue-id M#-T### -->` markers)
 - [x] PM-note resolution: implement `PI-NOTE-RESOLVED` markers.
-- [x] Done detection (plan.md §16.5): all milestones complete, no open issues/PRs, CI passes, tests pass, core coverage 100%, build succeeds, Pages deployed or explicitly blocked, README demo URL present, changelog + project-state current.
+- [x] Done detection (original plan §16.5): all milestones complete, no open issues/PRs, CI passes, tests pass, core coverage 100%, build succeeds, Pages deployed or explicitly blocked, README demo URL present, changelog + project-state current.
 - [x] On done: update manifest to `status: done` + `completed_at`, commit/push, create final "Project completed" issue, write local completion state, trigger Telegram if enabled, stop loop.
 
 ## Acceptance Criteria

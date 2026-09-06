@@ -1,11 +1,11 @@
 # Milestone 12: Pilot Project
 
 **Depends on:** Milestones 0–11 (must all be functional)
-**Reference:** plan.md §27, §28 "Milestone 12", §31
+**Reference:** original build plan (§27, §28 "Milestone 12", §31; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
-Run a real end-to-end pilot to validate the whole harness, using the plan's canonical example.
+Run a real end-to-end pilot to validate the whole harness, using the original plan's canonical example.
 
 ## Tasks
 
@@ -19,7 +19,7 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
   ```text
   /loop-seed Build a markdown notes app with tags and search
   ```
-- [x] Verify the full lifecycle against plan.md §27 and §31:
+- [x] Verify the full lifecycle against original plan §27 and §31:
   - [x] clarification happens (or "use assumptions")
   - [x] GitHub repo created under the configured account
   - [x] scaffold is demoable and testable (`npm install`, `npm test`, `npm run build` pass)
@@ -33,7 +33,7 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
   - [x] logs written to `.pi/logs/` with no secrets
   - [x] `/loop-status` reflects active work (M13; loop `status`/summary reflects it)
 - [x] Confirm stop path: run and verify `/loop-stop {project}` stops the loop cleanly.
-- [x] Verify one-project-per-machine enforcement: `/loop-seed` refuses while the pilot is active.
+- [x] Verify one-project-per-machine enforcement: at pilot time `/loop-seed` refused while the pilot was active. (Contract has since changed to **stop-then-seed**: `/loop-seed` now stops the active loop first, then seeds; see `docs/commands.md#loop-seed`. Previous projects are preserved and switchable via `/loop-switch`.)
 - [x] Drive project to completion: all milestones done, manifest `status: done`, final issue, loop stops.
 
 > **Pilot outcome:** ran the canonical example end-to-end on `AntonLapshin` — see
@@ -46,7 +46,7 @@ Run a real end-to-end pilot to validate the whole harness, using the plan's cano
 > itself is implemented in M13 (it remains a stub). M13 hardening items found by
 > this pilot are listed in `docs/pilot-report.md` §6.
 
-## Success Criteria (plan.md §28 M12)
+## Success Criteria (original plan §28 M12)
 
 - repo created
 - demo URL exists

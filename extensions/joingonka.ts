@@ -13,42 +13,35 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { openAiProvider, reasoningModel } from "./providers.js";
 
 export default function (pi: ExtensionAPI) {
-	pi.registerProvider("joingonka", {
+	pi.registerProvider("joingonka", openAiProvider({
 		name: "JoinGonka (Gonka)",
 		baseUrl: "https://gate.joingonka.ai/v1",
-		apiKey: "$JOINGONKA_API_KEY",
-		api: "openai-completions",
+		apiKeyEnv: "JOINGONKA_API_KEY",
 		models: [
-			{
+			reasoningModel({
 				id: "deepseek-ai/DeepSeek-V4-Flash-0731",
 				name: "DeepSeek V4 Flash 0731",
-				reasoning: true,
-                                reasoning_effort: "max",
-				input: ["text"],
 				cost: { input: 0.07, output: 0.1, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 380000,
 				maxTokens: 32768,
-			},
-			{
+			}),
+			reasoningModel({
 				id: "moonshotai/Kimi-K2.6",
 				name: "Kimi K2.6",
-				reasoning: true,
-				input: ["text"],
 				cost: { input: 0.07, output: 0.1, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 200000,
 				maxTokens: 8192,
-			},
-			{
+			}),
+			reasoningModel({
 				id: "MiniMaxAI/MiniMax-M2.7",
 				name: "MiniMax M2.7",
-				reasoning: true,
-				input: ["text"],
 				cost: { input: 0.07, output: 0.1, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 200000,
 				maxTokens: 8192,
-			},
+			}),
 		],
-	});
+	}));
 }

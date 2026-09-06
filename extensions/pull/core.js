@@ -53,6 +53,7 @@ import {
 	startLoopDetached,
 } from "../loop/orchestrator.js";
 import { validateConfig } from "../../skills/config/core.js";
+import { warnSuppressed } from "../loop/result.js";
 
 /**
  * Parse a GitHub repo reference (URL or `owner/repo`) into { owner, repo }.
@@ -157,7 +158,9 @@ export async function cloneProject(workspace, owner, repo, opts = {}) {
 			return { ok: true, message: `Cloned https://github.com/${owner}/${repo}.git` };
 		}
 		// Fallback: init an empty repo locally and point it at the remote.
-		await rm(workspace, { recursive: true, force: true }).catch(() => {});
+		await rm(workspace, { recursive: true, force: true }).catch((err) =>
+			warnSuppressed("pull.clone-cleanup", err),
+		);
 		await mkdir(workspace, { recursive: true });
 		await execa("git", ["init", "-b", DEFAULT_BRANCH], { cwd: workspace, reject: false });
 		await execa("git", ["remote", "add", "origin", url], { cwd: workspace, reject: false });
@@ -269,7 +272,7 @@ export async function runPull(ref, io = {}, opts = {}) {
 			ok: false,
 			message:
 				"Could not parse the repo reference. Usage: /loop-pull <github-repo-url-or-owner/repo>\n" +
-				"e.g. /loop-pull https://github.com/AntonLapshin/ape-kingdom",
+				"e.g. /loop-pull https://github.com/owner/repo",
 		};
 	}
 	const { owner, repo } = parsed;

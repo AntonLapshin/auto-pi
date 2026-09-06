@@ -6,7 +6,7 @@
  * "continue on a different machine" companion to `/loop-seed`:
  *
  *   pi install /path/to/auto-pi
- *   /loop-pull https://github.com/AntonLapshin/ape-kingdom
+ *   /loop-pull https://github.com/owner/repo
  *
  * It clones the repo into the same `~/.auto-pi/workspaces/{owner}/{repo}/repo`
  * layout `/loop-seed` uses, verifies it is an auto-pi project (committed
@@ -39,7 +39,7 @@ export default function (pi: ExtensionAPI) {
 			if (!ref) {
 				ctx.ui.notify(
 					"Usage: /loop-pull <github-repo-url-or-owner/repo>\n" +
-						"e.g. /loop-pull https://github.com/AntonLapshin/ape-kingdom",
+						"e.g. /loop-pull https://github.com/owner/repo",
 					"warning",
 				);
 				return;

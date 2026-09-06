@@ -1,7 +1,7 @@
 # Milestone 1: Environment Doctor
 
 **Depends on:** Milestone 0
-**Reference:** plan.md §3.3 (`/loop-doctor`), §6.1 (prerequisites)
+**Reference:** original build plan (§3.3 (`/loop-doctor`), §6.1 (prerequisites); historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 

@@ -34,18 +34,26 @@ which loads the provider extensions and the harness slash commands.
 
 ## Verify
 
-After installation, the following commands are available (interactively as
-`/loop-seed`, `/loop-stop`, `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config`, `/loop-doctor`):
+After installation, all 11 slash commands are available (see
+[commands.md](commands.md) for full usage):
 
-| Command | Purpose | Milestone |
-|---------|---------|-----------|
-| `/loop-seed` | Initiate a new project (clarify, create repo, scaffold) | M2 |
-| `/loop-stop` | Stop the autonomous loop | M6 |
-| `/loop-status` | Active project, loop, and persona status | M13 |
-| `/loop-logs` | Show the latest local logs | M13 |
-| `/loop-resume` | Resume a stopped/paused project's loop | M13 |
-| `/loop-sync-config` | Recopy config defaults, preserving project values | M13 |
-| `/loop-doctor` | Validate environment prerequisites | M1 |
+| Command | Purpose |
+|---------|---------|
+| `/loop-seed` | Spin up a new project (clarify, create repo, scaffold, start loop) |
+| `/loop-pull` | Continue an existing project on this machine from its GitHub repo |
+| `/loop-stop` | Pause the autonomous loop (project stays active) |
+| `/loop-restart` | Safely restart the autonomous loop (stop, then start again) |
+| `/loop-switch` | Switch the active project to another locally-seeded project |
+| `/loop-status` | Active project, loop, and persona status |
+| `/loop-logs` | Show the latest local logs |
+| `/loop-resume` | Resume a stopped/paused project's loop |
+| `/loop-sync-config` | Recopy config defaults, preserving project values |
+| `/loop-provider` | Show or switch the loop's LLM provider/model (restarts the loop) |
+| `/loop-doctor` | Validate environment prerequisites |
+
+Plus `/loop` (start/report the autonomous loop). To verify, start Pi and
+confirm `/loop-seed`, `/loop-pull`, `/loop-stop`, `/loop-status`,
+`/loop-doctor` show up in `/`-command completion.
 
 Each command also has a fallback `npm run <cmd>` / `node scripts/<cmd>.js`
 entry for non-interactive use (see [`scripts/`](../scripts/README.md)).

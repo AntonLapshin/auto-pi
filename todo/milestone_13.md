@@ -1,7 +1,7 @@
 # Milestone 13: Hardening
 
 **Depends on:** Milestone 12 (pilot learnings)
-**Reference:** plan.md §28 "Milestone 13", §29, §31, §7.2
+**Reference:** original build plan (§28 "Milestone 13", §29, §31, §7.2; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
@@ -10,36 +10,43 @@ Harden the harness against real-world failure modes and productionize the remain
 ## Tasks
 
 ### Reliability
-- [ ] Retry/backoff for transient GitHub and network errors.
-- [ ] GitHub rate-limit handling: detect rate limits, back off, retry with `X-RateLimit-Reset`.
-- [ ] Stale branch cleanup: close obsolete feature branches after merge/abandon.
-- [ ] Failed-issue limits: cap repeated attempts per issue (`limits.maxIssueAttempts`, default 3).
-- [ ] Conflict handling: detect merge conflicts, label `pi:conflict`, and route to Engineer for resolution.
-- [ ] `maxConsecutiveFailures` (default 3) → stop loop with repeated-failure stop reason.
+- [x] Retry/backoff for transient GitHub and network errors.
+- [x] GitHub rate-limit handling: detect rate limits, back off, retry with `X-RateLimit-Reset`.
+- [x] Stale branch cleanup: close obsolete feature branches after merge/abandon.
+- [x] Failed-issue limits: cap repeated attempts per issue (`limits.maxIssueAttempts`, default 3).
+- [x] Conflict handling: detect merge conflicts, label `pi:conflict`, and route to Engineer for resolution.
+- [x] `maxConsecutiveFailures` (default 3) → stop loop with repeated-failure stop reason.
 
 ### Budget / token guardrails
-- [ ] Implement budget guard (skills/budget-guard) enforcing plan.md §21:
+- [x] Implement budget guard (skills/budget-guard):
   - `maxTokensPerCycle` (0 = unlimited), `maxTokensPerDay` (0 = unlimited), `maxCostPerDayUsd` (0 = unlimited)
   - stop on budget exceeded (`loop.stopOnBudgetExceeded`)
-  - enforce `pi.contextMaxTokens` (150000), `maxPromptTokensPerPersona` (135000), `maxOutputTokensPerPersona` (8000)
+  - enforce `pi.contextMaxTokens`, `maxPromptTokensPerPersona`, `maxOutputTokensPerPersona` (all `0` = unlimited by default)
 
 ### Security / data
-- [ ] Secret redaction everywhere (logs, PR bodies, context packs) — never leak `.pi/local.json` or env tokens.
-- [ ] Log rotation honoring `logging.maxFileSizeMb` / `logging.rotate`.
+- [x] Secret redaction everywhere (logs, PR bodies, context packs) — never leak `.pi/local.json` or env tokens.
+- [x] Log rotation honoring `logging.maxFileSizeMb` / `logging.rotate`.
 
 ### Config validation
-- [ ] Validate `config.json` against `config.schema.json` at loop start and `/loop-seed` (zod or JSON schema).
-- [ ] `/loop-sync-config` (recopy defaults while preserving project-specific values) — plan.md §3.3.
+- [x] Validate `config.json` against `config.schema.json` at loop start and `/loop-seed` (zod or JSON schema).
+- [x] `/loop-sync-config` (recopy defaults while preserving project-specific values) — original plan §3.3.
 
 ### Remaining commands
-- [ ] `/loop-status` — active project, loop status, last persona run, open issues/PRs, budget usage (plan.md §3.3).
-- [ ] `/loop-logs` — show latest local logs.
-- [ ] `/loop-resume {project}` — resume a stopped/paused project if not completed.
-- [ ] Wire `/loop-logs`, `/loop-resume`, `/loop-sync-config` into extension index + `package.json` commands + fallback scripts.
+- [x] `/loop-status` — active project, loop status, last persona run, open issues/PRs, budget usage (original plan §3.3).
+- [x] `/loop-logs` — show latest local logs.
+- [x] `/loop-resume {project}` — resume a stopped/paused project if not completed.
+- [x] Wire `/loop-logs`, `/loop-resume`, `/loop-sync-config` into extension index + `package.json` commands + fallback scripts.
 
 ### Documentation
-- [ ] Complete docs: installation, github-token, configuration, commands, personas, github-pages, telegram, troubleshooting (plan.md §4 `docs/`).
-- [ ] Ensure all policies written: engineering-guidelines, testing-policy, ui-thin-layer-policy, issue-granularity, pr-policy, dependency-policy, security-policy, done-definition (plan.md §4 `policies/`, §25).
+- [x] Complete docs: installation, github-token, configuration, commands, personas, github-pages, telegram, troubleshooting.
+- [x] Ensure all policies written: engineering-guidelines, testing-policy, ui-thin-layer-policy, issue-granularity, pr-policy, dependency-policy, security-policy, done-definition.
+
+> Verified against `eb97869 Implement M13 hardening` + follow-ups
+> (`7815446` persona retry, `9504014` wall-clock persona timeout, `dc5aa3c`
+> lock-deadlock fix, `c17c39c` `/loop-provider`, `f5d2e5b` `/loop-switch`,
+> `21d12db` `/loop-restart`, `1977b0b` `/loop-pull`, `eadfe33` UI monitor):
+> all items above are implemented and covered by `tests/hardening.test.js`
+> (+ `persona-retry`, `provider-config`, `pull`, `loop` suites).
 
 ## Acceptance Criteria
 

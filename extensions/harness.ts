@@ -12,21 +12,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
 import { buildStatus } from "../skills/status/core.js";
 import { syncConfig } from "../skills/config/core.js";
 import { readActiveProject } from "./loop/orchestrator.js";
-
-/** Parse a `--tail N` argument (default 40 lines). */
-function parseTailArg(args: string): number {
-	const m = /--tail[= ](\d+)/i.exec(String(args || ""));
-	if (m) {
-		const n = parseInt(m[1], 10);
-		if (Number.isFinite(n) && n > 0) return n;
-	}
-	return 40;
-}
+import { parseTailArg, readTailLog, removeStopFile } from "./loop/log-helpers.js";
+import { warnSuppressed } from "./loop/result.js";
 
 export default function (pi: ExtensionAPI) {
 	// --- /loop-status (M13) ---
@@ -55,34 +45,18 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const workspace = activeRes.active.workspace;
-			const logsDir = join(workspace, ".pi", "logs");
 			const tail = parseTailArg(args);
 
-			let text = "";
-			try {
-				const files = await readdir(logsDir);
-				// Prefer latest.log (tail-friendly), then summary.md, then loop.out.
-				const candidates = ["latest.log", "summary.md", "loop.out"];
-				let chosen: string | null = null;
-				for (const c of candidates) {
-					if (files.includes(c)) {
-						chosen = c;
-						break;
-					}
-				}
-				if (!chosen && files.length) chosen = files[0];
-				if (!chosen) {
-					ctx.ui.notify("No logs found yet in .pi/logs.", "info");
-					return;
-				}
-				const raw = await readFile(join(logsDir, chosen), "utf8");
-				const lines = raw.split("\n");
-				text = lines.slice(-tail).join("\n");
-			} catch (err) {
-				ctx.ui.notify(`Could not read logs: ${err?.message || err}`, "error");
+			// Shared with `npm run logs` (scripts/logs.js) via log-helpers.js.
+			// Note: unlike the CLI (exit 1), "no logs yet" is an info
+			// notification here, not a failure.
+			const res = await readTailLog(workspace, tail);
+			if (!res.ok) {
+				ctx.ui.notify(res.error || "No logs found yet in .pi/logs.", "info");
 				return;
 			}
-			ctx.ui.notify(text || "(empty log)", "info");
+			const text = res.text || "(empty log)";
+			ctx.ui.notify(text, "info");
 			process.stdout.write(text + "\n");
 		},
 	});
@@ -105,13 +79,8 @@ export default function (pi: ExtensionAPI) {
 			const workspace = activeRes.active.workspace;
 
 			// Remove the stop file so the loop no longer exits immediately.
-			const stopFile = join(workspace, ".pi", "state", "stop");
-			try {
-				const { rm } = await import("node:fs/promises");
-				await rm(stopFile, { force: true });
-			} catch {
-				// best-effort
-			}
+			// Shared with `npm run resume` (scripts/resume.js) via log-helpers.js.
+			await removeStopFile(workspace);
 
 			// Check whether a loop is already running.
 			try {
@@ -124,30 +93,28 @@ export default function (pi: ExtensionAPI) {
 					);
 					return;
 				}
-			} catch {
+			} catch (err) {
+				warnSuppressed("loop-resume.check-lock", err);
 				// fall through and start the loop
 			}
 
-			// Start the loop detached (nohup) so the interactive session is not blocked.
-			try {
-				const { execa } = await import("execa");
-				const script = new URL("../scripts/loop.js", import.meta.url).pathname;
-				// Propagate the resolved provider/model into the detached loop process
-				// (nohup does not inherit the interactive session's PI_* env vars).
-				const { providerEnv } = await import("./loop/provider-env.js");
-				await execa("nohup", ["node", script], {
-					cwd: workspace,
-					detached: true,
-					stdio: "ignore",
-					env: providerEnv(),
-				}).catch(() => {});
-				ctx.ui.notify(
-					`Resumed ${activeRes.active.repo || workspace}: stop marker removed, loop started. Check .pi/logs/loop.out.`,
-					"success",
-				);
-			} catch (err) {
-				ctx.ui.notify(`Stop marker removed but could not start the loop: ${err?.message || err}`, "warning");
+		// Start the loop detached (shared `startLoopDetached` — same
+		// setsid/nohup launch with provider/model propagation as /loop-seed,
+		// /loop-pull and `npm run resume`) so the session is not blocked.
+		try {
+			const { startLoopDetached } = await import("./loop/orchestrator.js");
+			const started = await startLoopDetached(workspace);
+			if (!started.ok) {
+				ctx.ui.notify(`Stop marker removed but could not start the loop: ${started.message}`, "warning");
+				return;
 			}
+			ctx.ui.notify(
+				`Resumed ${activeRes.active.repo || workspace}: stop marker removed, loop started${started.pid ? ` (PID ${started.pid})` : ""}. Check .pi/logs/loop.out.`,
+				"success",
+			);
+		} catch (err) {
+			ctx.ui.notify(`Stop marker removed but could not start the loop: ${err?.message || err}`, "warning");
+		}
 		},
 	});
 

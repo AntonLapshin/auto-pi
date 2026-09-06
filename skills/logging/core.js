@@ -32,6 +32,7 @@ import {
 	rename,
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { warnSuppressed } from "../../extensions/loop/result.js";
 
 /** Relative (to workspace) root of the harness logs directory. */
 export const LOGS_DIR_REL = ".pi/logs";
@@ -184,8 +185,8 @@ export async function rollLog(workspace, relPath, config = {}) {
 		const maxBytes = maxFileSizeMb * 1024 * 1024;
 		if (st.size > maxBytes) {
 			const rolled = `${abs}.1`;
-			await rename(rolled, `${rolled}.old`).catch(() => {});
-			await rename(abs, rolled).catch(() => {});
+			await rename(rolled, `${rolled}.old`).catch((err) => warnSuppressed("logging.roll", err));
+			await rename(abs, rolled).catch((err) => warnSuppressed("logging.roll", err));
 			return true;
 		}
 	} catch {
@@ -277,15 +278,19 @@ export async function logPersonaActivity(p = {}) {
 		// line), then write the activity marker LAST so `latest.log` always ends
 		// with the most recent per-persona activity line.
 		if (p.refreshSummary !== false) {
-			await writeSummary({ workspace, config, state, lastRun: record }).catch(() => {});
+			await writeSummary({ workspace, config, state, lastRun: record }).catch((err) =>
+				warnSuppressed("logging.summary-refresh", err),
+			);
 		}
 		await writeLatestLog(
 			workspace,
 			`[${now}] persona=${record.persona || "loop"} status=${record.status} run=${record.runId}${record.reason ? ` reason=${record.reason}` : ""}`,
 		);
 		return record;
-	} catch {
-		// logging is best-effort and must never break the loop
+	} catch (err) {
+		// logging is best-effort and must never break the loop — but the
+		// suppression is reported so a broken log pipeline is visible.
+		warnSuppressed("logging.persona-activity", err);
 		return null;
 	}
 }

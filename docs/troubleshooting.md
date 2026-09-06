@@ -23,6 +23,12 @@ backs off on rate limits (M13). If you see repeated `gh retry ...` lines, check:
   off automatically) or raise the token's limits.
 - Is `gh auth status` healthy? Re-authenticate if the token expired.
 
+> Retry budgets differ on purpose: `gh` API calls retry fast and often
+> (3 retries, 1s base — cheap sub-second calls), while persona LLM sessions
+> retry rarely and slowly (`pi.maxRetries` 2, 5s base — each attempt is a full
+> session with real token cost). See `skills/github/core.js` and
+> `extensions/loop/persona-runner.js`.
+
 ## The loop stops with a "repeated failures" reason
 
 The loop stops after `loop.maxConsecutiveFailures` (default 3) consecutive failed
@@ -31,7 +37,8 @@ fix it, then `/loop-resume` (or `npm run resume`).
 
 ## The loop stops with a budget reason
 
-The loop stops when `limits.maxTokensPerDay` / `maxCostPerDayUsd` is reached.
+The loop stops when `limits.maxTokensPerDay` / `maxCostPerDayUsd` is reached
+(defaults in [configuration.md](configuration.md#limits); `0` = unlimited).
 Check `/loop-status` for budget usage. To continue, raise the limit in
 `.pi/config.json` and `/loop-resume`.
 
@@ -44,7 +51,9 @@ waits. Review the issue, fix the blocker, remove the labels, and `/loop-resume`.
 ## A PR has a merge conflict
 
 The harness labels conflicting PRs `pi:conflict` (M13) and routes the Engineer to
-resolve them. If the conflict persists, review it manually.
+resolve them (see the `pi:*` label glossary in
+[architecture.md](architecture.md#label-glossary)). If the conflict persists,
+review it manually.
 
 ## GitHub Pages deployment failed
 

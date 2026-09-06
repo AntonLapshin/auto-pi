@@ -81,10 +81,15 @@ auto-closed. ✓
 - `/loop-stop` (via `npm run stop`) wrote `.pi/state/stop`; the loop detected it on
   the next cycle and exited cleanly (`dispatch: stop (stop file present)`,
   `Loop stopped`, lock released). ✓
-- A second `/loop-seed` while the pilot was active was **refused** with the
-  one-project-per-machine message naming the active project. ✓
+- At pilot time, a second `/loop-seed` while the pilot was active was **refused**
+  with the one-project-per-machine message naming the active project. ✓
+  (Historical note: the contract has since changed to **stop-then-seed** — see
+  `commands.md#loop-seed`. `/loop-seed` now safely stops the currently-active
+  project's loop first, then seeds the new project as active; the previous
+  project's workspace/state are preserved and can be switched back to with
+  `/loop-switch`. The refusal behavior described above no longer applies.)
 
-## 5. Success-criteria check (plan.md §28 M12)
+## 5. Success-criteria check (original plan §28 M12)
 
 | Criterion | Result |
 |---|---|

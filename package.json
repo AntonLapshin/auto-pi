@@ -33,6 +33,7 @@
       "./extensions",
       "./extensions/doctor",
       "./extensions/seed",
+      "./extensions/pull",
       "./extensions/loop"
     ]
   },

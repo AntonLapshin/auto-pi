@@ -57,6 +57,7 @@ import {
 	appendEvent,
 } from "../../skills/logging/core.js";
 import { notifyEvent, setLogger } from "../../skills/telegram-notify/core.js";
+import { warnSuppressed } from "./result.js";
 /** Default per-machine active-project record (matches seed constants). */
 export const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
 
@@ -358,8 +359,10 @@ export async function waitForLoopExit(workspace, timeoutMs = 60_000, intervalMs 
 }
 
 /**
- * Launch the loop process detached under `setsid nohup`, mirroring the
- * `/loop-seed` auto-start pattern (extensions/seed/core.js `startLoopDetached`).
+ * Launch the loop process detached under `setsid nohup` — the canonical
+ * implementation shared by `/loop-seed` auto-start, `/loop-pull` auto-start,
+ * `/loop-resume`, `/loop-restart`, and the resume/restart fallback CLIs
+ * (via `extensions/seed/core.js` re-export).
  * The loop script resolves the active project itself, so we only need to give it
  * the workspace cwd and redirect output to the loop log. `setsid` places the
  * loop in its own session/process group with no controlling terminal so spawned
@@ -730,7 +733,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			await logCycleError(workspace, { error: activeRes.error, action: "error" }, config);
 			// Release the lock held this cycle so an error never leaks a live
 			// self-owned lock that would deadlock the next cycle (plan.md §13.2).
-			await releaseLock(workspace).catch(() => {});
+			await releaseLock(workspace).catch((err) => warnSuppressed("loop.lock-release", err));
 			return { ok: false, action: "error", message: activeRes.error };
 		}
 		const active = activeRes.active;
@@ -745,7 +748,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			// never leaks a live self-owned lock that would deadlock the next cycle
 			// (plan.md §13.2). Without this, the loop gets stuck forever refusing
 			// to start "a second loop" that is actually itself.
-			await releaseLock(workspace).catch(() => {});
+			await releaseLock(workspace).catch((err) => warnSuppressed("loop.lock-release", err));
 			return { ok: false, action: "error", message: `State scan failed: ${scanRes.error}` };
 		}
 		const state = scanRes.state;
@@ -757,7 +760,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			workspace,
 			config,
 			state,
-		}).catch(() => {});
+		}).catch((err) => warnSuppressed("loop.reliability-checks", err));
 
 		// Budget usage for the dispatch decision.
 		const usage = await readBudgetUsage(workspace);
@@ -806,13 +809,13 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 				openIssues: (state?.issues || []).length,
 				openPrs: (state?.prs || []).length,
 			},
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("loop.dispatch-event", err));
 
 		if (decision.decision === "stop") {
 			await appendEvent(workspace, {
 				type: "loop.stop",
 				data: { reason: decision.reason, budgetExceeded: Boolean(budget?.exceeded) },
-			}, config).catch(() => {});
+			}, config).catch((err) => warnSuppressed("loop.stop-event", err));
 			await logCycleResult(workspace, config, {
 				action: "stopped",
 				status: "stopped",
@@ -834,7 +837,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			await appendEvent(workspace, {
 				type: "loop.wait",
 				data: { reason: decision.reason },
-			}, config).catch(() => {});
+			}, config).catch((err) => warnSuppressed("loop.wait-event", err));
 			await logCycleResult(workspace, config, {
 				action: "waiting",
 				status: "waiting",
@@ -935,7 +938,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 				model: config?.pi?.model || "",
 				provider: config?.pi?.provider || "",
 			},
-		}, config).catch(() => {});
+		}, config).catch((err) => warnSuppressed("loop.persona-spawned-event", err));
 		// Observability: write a durable "started" activity record (runs.jsonl +
 		// latest.log + summary.md) the moment a persona is dispatched, so there is
 		// always at least one logged activity per persona even if the run is
@@ -950,7 +953,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			status: "started",
 			action: "started",
 			reason: `dispatch ${decision.decision}: ${decision.reason}`,
-		}).catch(() => {});
+		}).catch((err) => warnSuppressed("loop.persona-started-activity", err));
 		const result = await runPersonaWithRetry({
 			workspace,
 			persona: decision.persona,
@@ -965,7 +968,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 		log(`persona "${decision.persona}" finished (exit ${result.exitCode}, ok=${result.ok}).`);
 
 		// M10: write the execution summary after each persona run.
-		await refreshSummary(workspace, config, state).catch(() => {});
+		await refreshSummary(workspace, config, state).catch((err) => warnSuppressed("loop.refresh-summary", err));
 
 		// M11: if the PM just wrote the completion marker, send the "done"
 		// notification (project, repo, demo URLs) and stop the loop.
@@ -987,7 +990,7 @@ export async function runLoopCycle(workspace, io = {}, opts = {}) {
 			message: `Ran persona "${decision.persona}" (${result.ok ? "ok" : "exit " + result.exitCode}).`,
 		};
 	} catch (err) {
-		await releaseLock(workspace).catch(() => {});
+		await releaseLock(workspace).catch((releaseErr) => warnSuppressed("loop.lock-release", releaseErr));
 		const msg = `Loop cycle error: ${err?.message || err}`;
 		await logCycleError(workspace, { error: msg, action: "error" }, config);
 		return { ok: false, action: "error", message: msg };

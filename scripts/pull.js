@@ -6,7 +6,7 @@
  * can be continued here exactly as if it had been seeded locally. This is the
  * "continue on a different machine" companion to `/loop-seed`:
  *
- *   npm run pull -- https://github.com/AntonLapshin/ape-kingdom
+ *   npm run pull -- https://github.com/owner/repo
  *
  * It clones the repo into the same `~/.auto-pi/workspaces/{owner}/{repo}/repo`
  * layout `/loop-seed` uses, verifies it is an auto-pi project (committed
@@ -19,6 +19,9 @@
  *   --no-start   pull + record the active project but do not start the loop
  *   --yes        skip the confirmation prompt
  *   --help       show usage
+ *
+ * Exit codes: 0 ok · 1 operational failure (unparseable ref, repo not found,
+ * clone/config failure) · 2 usage/config error.
  */
 
 import { runPull } from "../extensions/pull/core.js";
@@ -31,7 +34,7 @@ function usage() {
 		"  node scripts/pull.js <github-repo-url-or-owner/repo> [--no-start] [--yes]",
 		"",
 		"Args:",
-		"  <github-repo-url-or-owner/repo>  e.g. https://github.com/AntonLapshin/ape-kingdom",
+		"  <github-repo-url-or-owner/repo>  e.g. https://github.com/owner/repo",
 		"",
 		"Flags:",
 		"  --no-start   pull + record the active project but do not start the loop",
@@ -51,12 +54,12 @@ async function main() {
 	const ref = argv.find((a) => !a.startsWith("--"));
 
 	if (!ref) {
-		process.stderr.write("[pull] Usage: node scripts/pull.js <github-repo-url-or-owner/repo> [--no-start] [--yes]\n");
+		process.stderr.write("[auto-pi:pull] Usage: node scripts/pull.js <github-repo-url-or-owner/repo> [--no-start] [--yes]\n");
 		process.exit(1);
 	}
 
 	const io = {
-		notify: (text) => process.stdout.write(`[pull] ${text}\n`),
+		notify: (text) => process.stdout.write(`[auto-pi:pull] ${text}\n`),
 		confirmPull: async (repo) => {
 			if (assume) return true;
 			process.stdout.write(`Pull ${repo} onto this machine and start the loop? [yes/no]: `);
@@ -75,6 +78,6 @@ async function main() {
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi pull] error: ${err?.stack || err}\n`);
+	process.stderr.write(`[auto-pi:pull] error: ${err?.stack || err}\n`);
 	process.exit(2);
 });

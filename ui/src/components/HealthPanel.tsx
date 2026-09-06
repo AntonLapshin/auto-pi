@@ -70,7 +70,7 @@ export function HealthPanel({ status, className = "" }: { status: StatusResponse
             Recent failures
           </div>
           <ul className="space-y-1.5">
-            {h.recentFailures.slice(0, 6).map((f, i) => (
+            {h.recentFailures.map((f, i) => (
               <li key={i} className="flex items-start gap-2 rounded-lg bg-slate-800/60 px-3 py-1.5 text-xs">
                 <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
                 <span className="text-slate-300">{f.persona || "?"}:</span>

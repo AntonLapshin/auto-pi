@@ -16,6 +16,10 @@
  * Flags:
  *   --timeout N   seconds to wait for the running loop to exit (default 60)
  *   --help        show usage
+ *
+ * Exit codes: 0 ok · 1 operational failure (no active project, restart
+ * failed, or timed out waiting for the old loop — it was asked to stop and
+ * will exit on its own; run again shortly) · 2 usage/config error.
  */
 
 import { fileURLToPath } from "node:url";
@@ -48,19 +52,21 @@ async function main() {
 
 	const activeRes = await readActiveProject();
 	if (!activeRes.ok) {
-		process.stderr.write(`[restart] ${activeRes.error}\n`);
-		process.stderr.write(`[restart] Use /loop-seed (npm run seed) to start a new project.\n`);
+		process.stderr.write(`[auto-pi:restart] ${activeRes.error}\n`);
+		process.stderr.write(`[auto-pi:restart] Use /loop-seed (npm run seed) to start a new project.\n`);
 		process.exit(1);
 	}
 	const workspace = activeRes.active.workspace;
 
-	const io = { log: (line) => process.stdout.write(`[restart] ${line}\n`) };
+	const io = { log: (line) => process.stdout.write(`[auto-pi:restart] ${line}\n`) };
 	const result = await restartLoop(workspace, { timeoutMs: timeoutSec ? timeoutSec * 1000 : undefined, ...io });
 	process.stdout.write(result.message + "\n");
-	process.exit(result.ok ? 0 : (result.timedOut ? 2 : 1));
+	// A timeout is an operational failure (exit 1), not a usage error: the old
+	// loop was asked to stop and will exit on its own.
+	process.exit(result.ok ? 0 : 1);
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi restart] error: ${err?.stack || err}\n`);
+	process.stderr.write(`[auto-pi:restart] error: ${err?.stack || err}\n`);
 	process.exit(2);
 });

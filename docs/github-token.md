@@ -1,4 +1,4 @@
-# docs/github-token
+# GitHub Token
 
 GitHub access for the auto-pi harness is provided by the GitHub CLI (`gh`) and/or a
 personal access token (PAT). The harness requires a token able to create repositories,

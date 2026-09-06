@@ -1,6 +1,6 @@
 import type { StatusResponse } from "../lib/types";
 import { StatCard } from "./StatCard";
-import { fmtNumber, fmtTokens, fmtDuration } from "../lib/format";
+import { fmtNumber, fmtTokens } from "../lib/format";
 
 export function SummaryPanel({ status, className = "" }: { status: StatusResponse; className?: string }) {
   const s = status;
@@ -75,5 +75,3 @@ export function SummaryPanel({ status, className = "" }: { status: StatusRespons
     </section>
   );
 }
-
-export { fmtDuration };

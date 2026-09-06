@@ -10,11 +10,20 @@
  * Flags:
  *   --tail N   number of lines to show (default 40)
  *   --help     show usage
+ *
+ * Shares its logic with the interactive `/loop-logs` slash command
+ * (`extensions/harness.ts`) via `extensions/loop/log-helpers.js`, so the CLI
+ * and the interactive command report identical results.
+ *
+ * Exit codes: 0 ok · 1 operational failure (no active project / no logs) ·
+ * 2 usage/config error. Note: the interactive `/loop-logs` reports "no logs
+ * yet" as an info notification instead of a failure — the CLI exits 1 so
+ * scripts can detect the empty case.
  */
 
-import { join } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
 import { readActiveProject } from "../extensions/loop/orchestrator.js";
+import { parseTailArg, readTailLog } from "../extensions/loop/log-helpers.js";
+import { EXIT_OK, EXIT_OPERATIONAL, EXIT_USAGE } from "../extensions/loop/result.js";
 
 function usage() {
 	return [
@@ -33,42 +42,29 @@ async function main() {
 	const argv = process.argv.slice(2);
 	if (argv.includes("--help") || argv.includes("-h")) {
 		process.stdout.write(usage() + "\n");
-		process.exit(0);
+		process.exit(EXIT_OK);
 	}
-	const tailArg = argv.find((a) => a.startsWith("--tail="))?.slice("--tail=".length);
-	const tail = tailArg ? parseInt(tailArg, 10) : 40;
+	const tail = parseTailArg(argv);
 
 	const activeRes = await readActiveProject();
 	if (!activeRes.ok) {
-		process.stderr.write(`[logs] ${activeRes.error}\n`);
-		process.exit(1);
+		process.stderr.write(`[auto-pi:logs] ${activeRes.error}\n`);
+		process.exit(EXIT_OPERATIONAL);
 	}
 	const workspace = activeRes.active.workspace;
-	const logsDir = join(workspace, ".pi", "logs");
 
-	let files;
-	try {
-		files = await readdir(logsDir);
-	} catch {
-		process.stderr.write(`[logs] No logs found yet in ${logsDir}\n`);
-		process.exit(1);
-	}
-	const candidates = ["latest.log", "summary.md", "loop.out"];
-	let chosen = candidates.find((c) => files.includes(c)) || null;
-	if (!chosen && files.length) chosen = files[0];
-	if (!chosen) {
-		process.stderr.write(`[logs] No logs found yet in ${logsDir}\n`);
-		process.exit(1);
+	const res = await readTailLog(workspace, tail);
+	if (!res.ok) {
+		process.stderr.write(`[auto-pi:logs] ${res.error}\n`);
+		process.exit(EXIT_OPERATIONAL);
 	}
 
-	const raw = await readFile(join(logsDir, chosen), "utf8");
-	const lines = raw.split("\n");
-	process.stdout.write(`[logs] ${chosen} (last ${Math.min(tail, lines.length)} of ${lines.length} lines)\n`);
-	process.stdout.write(lines.slice(-tail).join("\n") + "\n");
-	process.exit(0);
+	process.stdout.write(`[auto-pi:logs] ${res.file} (last ${Math.min(tail, res.totalLines)} of ${res.totalLines} lines)\n`);
+	process.stdout.write((res.text || "") + "\n");
+	process.exit(EXIT_OK);
 }
 
 main().catch((err) => {
-	process.stderr.write(`[auto-pi logs] error: ${err?.stack || err}\n`);
-	process.exit(2);
+	process.stderr.write(`[auto-pi:logs] error: ${err?.stack || err}\n`);
+	process.exit(EXIT_USAGE);
 });

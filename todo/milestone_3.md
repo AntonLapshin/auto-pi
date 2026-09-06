@@ -1,7 +1,7 @@
 # Milestone 3: React/Tailwind Project Scaffold
 
 **Depends on:** Milestone 2
-**Reference:** plan.md §8.6, §19, §26, §28 "Milestone 3"
+**Reference:** original build plan (§8.6, §19, §26, §28 "Milestone 3"; historical — canonical docs: README.md, docs/architecture.md, docs/commands.md)
 
 ## Goal
 
@@ -10,7 +10,7 @@ Build the scraffolding that generates a demoable, testable React + Tailwind + Ty
 ## Tasks
 
 - [x] Implement `extensions/seed/scaffold.js` using the Jinja/`*.j2` templates in `templates/project/`.
-- [x] Generate the base project files listed in plan.md §8.6:
+- [x] Generate the base project files listed in original plan §8.6:
   - `package.json` (scripts: dev, build `tsc && vite build`, preview, lint, test, test:coverage)
   - `tsconfig.json`
   - `vite.config.ts` (with base path placeholder)
@@ -27,8 +27,8 @@ Build the scraffolding that generates a demoable, testable React + Tailwind + Ty
   - `src/ui/viewModels/useProjectInfo.ts`
   - `src/styles/index.css` with `@tailwind` directives
 - [x] Generate `tests/core/projectInfo.test.ts` covering the core module.
-- [x] Configure Vitest coverage enforcing 100% on `src/core/**/*.ts` only (plan.md §19.1).
-- [x] Generate an initial demo panel that renders project name / status / demo info (plan.md §26.3).
+- [x] Configure Vitest coverage enforcing 100% on `src/core/**/*.ts` only (original plan §19.1).
+- [x] Generate an initial demo panel that renders project name / status / demo info (original plan §26.3).
 - [x] Inject the project name into templates during scaffolding.
 - [x] Verify scaffold succeeds locally:
   ```bash
