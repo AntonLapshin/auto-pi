@@ -379,6 +379,11 @@ export async function buildPmContext({ workspace, config, state, decision, ghFn 
 	lines.push(`## Task`, ``);
 	lines.push(`You are the PM persona. Using the context above and the repo at ${workspace}, perform the PM work described in your system prompt (handle PM notes, plan issues, update project state, detect done).`);
 	lines.push(``);
+	if (blocked.length > 0 && issues.every((i) => (i.labels || []).includes("pi:blocked") || (i.labels || []).includes("pi:needs-human"))) {
+		lines.push(`### Blocked-only state — keep planning the next milestone`, ``);
+		lines.push(`All remaining non-human work is \`pi:blocked\` (the rest waits on a human). Revisit the blocked issues per Step 1b, then proceed to file issues for the NEXT unchecked milestone scope in manifest.md (Step 3b / Step 5) — do not end your turn without planning. A valid block must never stall milestone planning.`);
+		lines.push(``);
+	}
 
 	return lines.join("\n");
 }

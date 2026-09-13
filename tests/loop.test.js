@@ -304,6 +304,49 @@ test("dispatch: bare pi:blocked with no ready work → PM (revisit/unblock)", ()
 	assert.equal(d.persona, PERSONAS.PM);
 });
 
+test("dispatch: blocked-only + unrelated pi:needs-human → PM (milestone planning not starved)", () => {
+	// A single `pi:needs-human` issue (e.g. Pages deploy) must not starve the PM
+	// from revisiting `pi:blocked` issues and filing issues for the next
+	// milestone. Only when NO non-human work remains does the loop wait.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: true,
+		state: state([
+			issue(8, ["pi:blocked", "need-owner"]),
+			issue(49, ["need-owner", "pi:needs-human"]),
+		]),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+	assert.match(d.reason, /only blocked/);
+	assert.match(d.reason, /next milestone/);
+});
+
+test("dispatch: needs-human only (no other work) → WAIT", () => {
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: true,
+		state: state([issue(49, ["need-owner", "pi:needs-human"])]),
+	});
+	assert.equal(d.decision, DECISION.WAIT);
+});
+
+test("dispatch: pi:ready + pi:blocked on the same issue → PM (blocked is not implementable)", () => {
+	// A `pi:ready` label with a left-over `pi:blocked` must not dispatch the
+	// Engineer onto unimplementable work — the PM must revisit/unblock first
+	// (and keep planning the next milestone meanwhile).
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([issue(1, ["pi:ready", "pi:blocked"])]),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+});
+
 test("dispatch: owner-replied issue → PM (triage before ready work)", () => {
 	// The owner commented (Owner:-prefixed) and swapped need-owner for
 	// owner-replied. The PM must triage + answer ahead of ready work so a

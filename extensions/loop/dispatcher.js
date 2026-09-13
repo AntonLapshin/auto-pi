@@ -15,15 +15,18 @@
  *   4d. PR approved but not merge-ready        → Engineer (resolve/merge)
  *   4e. otherwise (any other open PR)          → Review Engineer
  *
- * No open PRs → the previous PR is merged/closed, the Engineer may pick the
+ * No open PRs → the previous PR is merged/closed. The Engineer picks the
  * next task; PM spawns only after all PRs are merged and no issues remain:
  *   5. unresolved PM work (`pi:needs-pm`/`pi:pm-note`) → PM (split/unblock)
  *   5b. owner replied (`owner-replied`)                → PM (triage + answer)
- *   6. open ready issues (excluding `pi:needs-human`) → Engineer
+ *   6. open ready issues (excluding `pi:blocked`/`pi:needs-human`) → Engineer
+ *   7. open non-human issues remain (unplanned/blocked) → PM (revisit blocked,
+ *      plan unplanned, file issues for the next milestone)
  *   6b. initiation needs human                 → wait (only when NO actionable
- *      ready work remains — a single `pi:needs-human` issue must not starve
- *      unrelated `pi:ready` issues that the Engineer could implement)
- *   7. open issues remain (unplanned/PM notes/blocked) → PM
+ *      ready work AND no non-human PM work remains — a single `pi:needs-human`
+ *      issue must not starve unrelated `pi:ready` issues the Engineer could
+ *      implement, nor must it starve the PM from revisiting `pi:blocked`
+ *      issues and filing issues for the next milestone)
  *   8. no open PRs and no open issues          → PM (finalize) — unless the
  *      project is already marked done (completed.json), in which case → WAIT
  *      so the loop polls GitHub at zero cost and only resumes work when a new
@@ -247,10 +250,13 @@ export function dispatch(inputs) {
 	// 6. Open ready issues → Engineer (implements one; Engineer's judgement
 	//    decides which task to pick among the ready issues). Issues labelled
 	//    `pi:needs-human` are NOT actionable ready work — they wait on a human
-	//    — so they are excluded here and handled by the needs-human wait below.
-	//    Otherwise a single need-owner issue (e.g. Pages deploy) would starve
-	//    every unrelated `pi:ready` issue forever.
-	const actionableReady = issues.find((i) => hasLabel(i.labels, LABELS.READY) && !hasLabel(i.labels, LABELS.NEEDS_HUMAN));
+	//    — and issues labelled `pi:blocked` are NOT implementable yet (their
+	//    obstacle is unresolved) — so both are excluded here. The blocked ones
+	//    are surfaced to the PM via step 7 instead. Otherwise a single
+	//    need-owner or blocked issue (e.g. Pages deploy) would starve every
+	//    unrelated `pi:ready` issue forever, or push the Engineer onto
+	//    unimplementable work.
+	const actionableReady = issues.find((i) => hasLabel(i.labels, LABELS.READY) && !hasLabel(i.labels, LABELS.NEEDS_HUMAN) && !hasLabel(i.labels, LABELS.BLOCKED));
 	if (actionableReady) {
 		return {
 			decision: DECISION.ENGINEER,
@@ -259,25 +265,47 @@ export function dispatch(inputs) {
 		};
 	}
 
-	// 6b. Initiation needs human → wait. Reached only when no actionable PR,
-	//    PM, or ready-Engineer work remains, so waiting on the human never
-	//    starves implementable work.
-	if (needsHuman) {
-		return { decision: DECISION.WAIT, reason: "a human decision is required (pi:needs-human)" };
-	}
-
-	// 7. Open issues remain (unplanned / unresolved PM notes) → PM, so the
-	//    work can be split/planned into `pi:ready` issues the Engineer can pick
-	//    up next.
-	if (issues.length > 0) {
-		const hasPmNote = Boolean(issueWithLabel(LABELS.PM_NOTE));
+	// 7. Open non-human issues remain (unplanned / blocked) → PM, so blocked
+	//    issues are revisited/unblocked and unplanned work is split/planned
+	//    into `pi:ready` issues the Engineer can pick up next — including
+	//    filing issues for the NEXT milestone when only `pi:blocked` issues
+	//    are left (the block often stays valid while its prerequisites are
+	//    implemented, so the PM must keep planning ahead rather than stall).
+	//    Issues labelled `pi:needs-human` are excluded: they wait on a human
+	//    and are handled by the 6b wait below once no PM-actionable work
+	//    remains. Checking this BEFORE the human wait guarantees a single
+	//    `pi:needs-human` issue (e.g. Pages deploy) never starves milestone
+	//    planning while blocked/unplanned work remains.
+	const pmActionable = issues.filter((i) => !hasLabel(i.labels, LABELS.NEEDS_HUMAN));
+	if (pmActionable.length > 0) {
+		const hasPmNote = Boolean(pmActionable.find((i) => hasLabel(i.labels, LABELS.PM_NOTE)));
+		if (hasPmNote) {
+			return {
+				decision: DECISION.PM,
+				persona: PERSONAS.PM,
+				reason: "an open issue has unresolved PM notes",
+			};
+		}
+		const blockedOnly = pmActionable.every((i) => hasLabel(i.labels, LABELS.BLOCKED));
+		if (blockedOnly) {
+			return {
+				decision: DECISION.PM,
+				persona: PERSONAS.PM,
+				reason: `only blocked issue(s) #${pmActionable.map((i) => i.number).join(", #")} remain; PM to revisit/unblock and file issues for the next milestone`,
+			};
+		}
 		return {
 			decision: DECISION.PM,
 			persona: PERSONAS.PM,
-			reason: hasPmNote
-				? "an open issue has unresolved PM notes"
-				: `${issues.length} open issue(s) remain unplanned`,
+			reason: `${pmActionable.length} open issue(s) remain unplanned`,
 		};
+	}
+
+	// 6b. Initiation needs human → wait. Reached only when no actionable PR,
+	//    PM-actionable, or ready-Engineer work remains, so waiting on the human
+	//    never starves implementable work or milestone planning.
+	if (needsHuman) {
+		return { decision: DECISION.WAIT, reason: "a human decision is required (pi:needs-human)" };
 	}
 
 	// 7. No open PRs and no open issues → PM (finalize / plan the next slice) —

@@ -28,9 +28,13 @@ The repository lives in your current working directory. Key files:
 ## Step 1 — Issue selection
 
 1. List open issues: `gh issue list --repo {owner}/{repo} --state open --json number,title,body,labels`.
-2. Pick a `pi:ready` issue (label `pi:ready`) that is **not already in progress**:
+2. Pick a `pi:ready` issue (label `pi:ready`) that is **not already in progress**
+   and **not blocked**:
    - skip issues that already have an open PR or an existing `task/{issueNum}-*`
      branch (check `gh pr list` and `git branch -r`).
+   - **skip `pi:blocked` issues** — even if they still carry a left-over
+     `pi:ready` label, their obstacle is unresolved and only the PM can unblock
+     them. Implementing blocked work wastes the session; leave it for the PM.
    - **prefer the highest-priority ready issue** (label `priority:p1`, then
      `priority:p2`, then `priority:p3`), breaking ties by the lowest issue number.
      `p1` is the foundational / do-first work the PM wants next; if no priority

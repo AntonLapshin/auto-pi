@@ -91,8 +91,14 @@ obstacle is resolved** — instead of stalling the whole loop on a human.
 3. Only unblock an issue when its obstacle is genuinely resolved. Do not force
    `pi:ready` onto work whose prerequisites are still open — that would push the
    Engineer onto unimplementable work.
-4. If there were blocked issues to revisit, handle them and **end your turn**
-   (do not create new issues in the same turn — let the loop re-dispatch).
+4. Do NOT end your turn just because `pi:blocked` issues remain. After
+   revisiting them: if no `pi:ready` issue and no open PR remains (i.e. only
+   `pi:blocked` — and possibly `pi:needs-human`/`need-owner` — issues are
+   left), the loop dispatched you precisely so planning keeps moving: proceed
+   to **Step 3b / Step 5** and file issues for the **next** unchecked milestone
+   scope in `manifest.md`. Ending your turn without planning would trap the
+   loop in an endless revisit cycle where blocked issues are re-checked every
+   turn but no new milestone work is ever filed.
 
 ---
 
@@ -153,6 +159,15 @@ acting:
   skip. Go to **Step 5** and turn it into a **fully covering** batch of
   `pi:ready` sub-issues (split into a milestone if it is large, then close the
   parent issue).
+
+- **Blocked-only work** — every remaining non-human issue carries `pi:blocked`
+  (the dispatcher routes this with reason `only blocked issue(s) #... remain;
+  PM to revisit/unblock and file issues for the next milestone`). The blocks
+  are still valid (prerequisites not yet merged), so there is nothing to
+  unblock — but the project must still move forward. **You must plan the next
+  milestone**: after the Step 1b revisit, go to **Step 3b / Step 5** and file
+  issues for the **next** unchecked sub-issues in `manifest.md` (in milestone
+  order). Never let a valid block stall milestone planning.
 
   Concretely: after Step 1/1b, if any open issue lacks `pi:ready` and there is no
   open PR, treat it as unplanned and proceed to **Step 5** to plan it — do not

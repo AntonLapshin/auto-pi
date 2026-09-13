@@ -288,11 +288,14 @@ export function resolveTarget(state) {
 		return { kind: "merge", number: approvedMerge.number, labels: approvedMerge.labels };
 	}
 
-	// 3. Implement the highest-priority `pi:ready` issue not already in flight.
-	//    The PM labels issues `priority:p1/p2/p3`; p1 is done first. Fall back
-	//    to the lowest priority and the oldest (lowest-number) issue as a
-	//    tie-break so dependency chains still resolve in order.
-	const ready = issues.filter((i) => hasLabel(i.labels, LABELS.READY));
+	// 3. Implement the highest-priority `pi:ready` issue not already in flight
+	//    and not blocked. A `pi:blocked` issue (even with a left-over
+	//    `pi:ready`) is unimplementable until the PM unblocks it, so it is
+	//    excluded here — the dispatcher routes blocked-only states to the PM
+	//    instead. The PM labels issues `priority:p1/p2/p3`; p1 is done first.
+	//    Fall back to the lowest priority and the oldest (lowest-number) issue
+	//    as a tie-break so dependency chains still resolve in order.
+	const ready = issues.filter((i) => hasLabel(i.labels, LABELS.READY) && !hasLabel(i.labels, LABELS.BLOCKED));
 	if (ready.length) {
 		// Skip issues that already have an open PR or a task branch in flight.
 		const inFlightPrNumbers = new Set(prs.map((p) => p.number));
