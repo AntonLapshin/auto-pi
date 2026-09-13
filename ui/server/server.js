@@ -229,6 +229,62 @@ async function readLatestSummary(workspace) {
 	}
 }
 
+/** Build the tiny ESP-optimized status payload (<500 bytes, LAN polling).
+ * Aggregates loop lock + last run/event + today's counts. Color is decided
+ * server-side so the ESP32 firmware just draws it. */
+async function buildEspStatus(active) {
+	const workspace = active.workspace;
+	const [runs, events, errors, usage] = await Promise.all([
+		readRuns(workspace),
+		readEvents(workspace, { limit: 5 }),
+		readErrors(workspace),
+		readUsage(workspace),
+	]);
+	const loop = await loopState(workspace);
+	const now = Date.now();
+	const lastRun = runs.length ? runs[runs.length - 1] : null;
+	const lastEvent = events.length ? events[0] : null;
+	const lastAtRaw = lastRun?.finishedAt || lastRun?.startedAt || lastEvent?.at || "";
+	const lastMs = Date.parse(lastAtRaw || "");
+	const ago_s = Number.isFinite(lastMs) ? Math.max(0, Math.floor((now - lastMs) / 1000)) : -1;
+	const today = new Date().toISOString().slice(0, 10);
+	const runsToday = runs.filter((r) => String(r.startedAt || "").slice(0, 10) === today);
+	const ok_n = runsToday.filter((r) => r.status === "ok" || r.action === "ran").length;
+	const fail_n = runsToday.filter((r) => r.status === "error" || r.action === "error").length;
+	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
+	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
+	// Traffic-light logic.
+	let status = "grey";
+	if (!lastRun) {
+		status = loop.running ? "yellow" : "grey";
+	} else if (!loop.running) {
+		status = "red";
+	} else if ((lastRun.status === "error" || lastRun.action === "error") && ago_s >= 0 && ago_s < 900) {
+		status = "red";
+	} else if (ago_s < 0 || ago_s > 900) {
+		status = "red";
+	} else if (ago_s > 300) {
+		status = "yellow";
+	} else {
+		status = "green";
+	}
+	return {
+		ok: true,
+		status,
+		loop: Boolean(loop.running),
+		persona: String(lastRun?.persona || ""),
+		last,
+		ago_s,
+		runs: runsToday.length,
+		ok_n,
+		fail_n,
+		tok_today,
+		err: errors.length,
+		proj: String(active.projectName || "").slice(0, 24),
+		at: new Date().toISOString(),
+	};
+}
+
 function sendJson(res, status, body) {
 	const data = JSON.stringify(body);
 	res.writeHead(status, {
@@ -321,6 +377,13 @@ const server = createServer(async (req, res) => {
 			if (!active) return sendError(res, 404, "No active auto-pi project found.");
 			const summary = await readLatestSummary(active.workspace);
 			return sendJson(res, 200, { summary });
+		}
+
+		if (path === "/api/esp-status") {
+			const active = await resolveActive();
+			if (!active) return sendError(res, 404, "No active auto-pi project found.");
+			const payload = await buildEspStatus(active);
+			return sendJson(res, 200, payload);
 		}
 
 		if (path === "/api/healthz") {
