@@ -67,9 +67,11 @@ export async function cleanupStaleBranches(owner, repo, ghFn, opts = {}) {
 		if (del.ok || del.exitCode === 0) {
 			deleted.push(`#${pr.number}:${head}`);
 		} else {
-			// 404 → branch already gone; anything else → leave it (best-effort).
+			// 404/422 → branch already gone (merged PRs usually auto-delete
+			// their head branch, and the GitHub refs API reports that as
+			// 422 "Reference does not exist"); anything else → leave it.
 			const msg = String(del.stderr || "");
-			if (!/404|not found/i.test(msg)) {
+			if (!/404|not found|422|reference does not exist/i.test(msg)) {
 				// Non-404 failure — not fatal, just note it.
 				deleted.push(`#${pr.number}:${head} (cleanup skipped: ${msg.slice(0, 80)})`);
 			}
