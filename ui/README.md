@@ -9,7 +9,15 @@ Full operator guide (architecture, running, API table, ledger schemas):
 
 ## Running
 
-Two processes (or use the two terminals below):
+First install the UI dependencies (one time — without this `vite` is missing
+and `npm run ui:dev` fails with `vite: command not found`):
+
+```bash
+npm run ui:install
+#    or, from the repo root: npm --prefix ui ci --no-audit --no-fund
+```
+
+Then start two processes (or use the two terminals below):
 
 ```bash
 # 1. Backend API on http://localhost:8787

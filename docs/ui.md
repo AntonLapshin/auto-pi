@@ -37,7 +37,15 @@ workspace layout.
 
 ## Running
 
-Two processes:
+First install the UI dependencies (one time — without this `vite` is missing
+and `npm run ui:dev` fails with `vite: command not found`):
+
+```bash
+npm run ui:install
+#    or: npm --prefix ui ci --no-audit --no-fund
+```
+
+Then start two processes:
 
 ```bash
 # 1. Backend API on http://localhost:8787

@@ -25,6 +25,7 @@
     "pages": "node scripts/pages.js",
     "test": "node --test",
     "ui:server": "node ui/server/server.js",
+    "ui:install": "npm --prefix ui ci --no-audit --no-fund",
     "ui:dev": "npm --prefix ui run dev",
     "ui:build": "npm --prefix ui run build"
   },
