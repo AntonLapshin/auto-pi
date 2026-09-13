@@ -7,7 +7,6 @@
  *
  *   1. stop file exists                       → stop
  *   2. budget exceeded                        → stop
- *   3. initiation needs human                 → wait
  *
  * One-PR-at-a-time gate (while any PR is open only the PR is worked):
  *   4a. PR has changes requested               → Engineer (address comments)
@@ -20,7 +19,10 @@
  * next task; PM spawns only after all PRs are merged and no issues remain:
  *   5. unresolved PM work (`pi:needs-pm`/`pi:pm-note`) → PM (split/unblock)
  *   5b. owner replied (`owner-replied`)                → PM (triage + answer)
- *   6. open ready issues                       → Engineer
+ *   6. open ready issues (excluding `pi:needs-human`) → Engineer
+ *   6b. initiation needs human                 → wait (only when NO actionable
+ *      ready work remains — a single `pi:needs-human` issue must not starve
+ *      unrelated `pi:ready` issues that the Engineer could implement)
  *   7. open issues remain (unplanned/PM notes/blocked) → PM
  *   8. no open PRs and no open issues          → PM (finalize) — unless the
  *      project is already marked done (completed.json), in which case → WAIT
@@ -100,11 +102,6 @@ export function dispatch(inputs) {
 	// 2. Budget exceeded → stop.
 	if (budgetInfo.exceeded) {
 		return { decision: DECISION.STOP, reason: budgetInfo.reason || "budget exceeded" };
-	}
-
-	// 3. Initiation needs human → wait.
-	if (needsHuman) {
-		return { decision: DECISION.WAIT, reason: "a human decision is required (pi:needs-human)" };
 	}
 
 	// Helper predicates over the scanned state.
@@ -248,13 +245,25 @@ export function dispatch(inputs) {
 	}
 
 	// 6. Open ready issues → Engineer (implements one; Engineer's judgement
-	//    decides which task to pick among the ready issues).
-	if (issueWithLabel(LABELS.READY)) {
+	//    decides which task to pick among the ready issues). Issues labelled
+	//    `pi:needs-human` are NOT actionable ready work — they wait on a human
+	//    — so they are excluded here and handled by the needs-human wait below.
+	//    Otherwise a single need-owner issue (e.g. Pages deploy) would starve
+	//    every unrelated `pi:ready` issue forever.
+	const actionableReady = issues.find((i) => hasLabel(i.labels, LABELS.READY) && !hasLabel(i.labels, LABELS.NEEDS_HUMAN));
+	if (actionableReady) {
 		return {
 			decision: DECISION.ENGINEER,
 			persona: PERSONAS.ENGINEER,
 			reason: "an open issue is ready to implement",
 		};
+	}
+
+	// 6b. Initiation needs human → wait. Reached only when no actionable PR,
+	//    PM, or ready-Engineer work remains, so waiting on the human never
+	//    starves implementable work.
+	if (needsHuman) {
+		return { decision: DECISION.WAIT, reason: "a human decision is required (pi:needs-human)" };
 	}
 
 	// 7. Open issues remain (unplanned / unresolved PM notes) → PM, so the

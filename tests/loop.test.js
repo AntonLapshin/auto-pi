@@ -209,6 +209,40 @@ test("dispatch: needs-human + blocked ready issue → WAIT on human", () => {
 	assert.equal(d.decision, DECISION.WAIT);
 });
 
+test("dispatch: pi:needs-human on one issue does not starve unrelated pi:ready work", () => {
+	// Regression: a single need-owner issue (e.g. Pages deploy) must not freeze
+	// the whole loop while unrelated `pi:ready` issues could be implemented.
+	// The needs-human wait applies only when NO actionable ready work remains.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: true,
+		state: state([
+			issue(49, ["need-owner", "pi:needs-human"]),
+			issue(47, ["pi:ready"]),
+			issue(48, ["pi:ready"]),
+		]),
+	});
+	assert.equal(d.decision, DECISION.ENGINEER);
+	assert.equal(d.persona, PERSONAS.ENGINEER);
+});
+
+test("dispatch: open PR still worked while an unrelated issue needs a human", () => {
+	// The one-PR-at-a-time gate outranks the human wait: an in-flight PR keeps
+	// moving even when a different issue waits on the owner.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: true,
+		state: state(
+			[issue(49, ["need-owner", "pi:needs-human"])],
+			[pr(50, ["pi:review-needed"], "none", true)],
+		),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+});
+
 test("dispatch: pi:needs-pm work routed to PM before pi:ready Engineer (scope-too-large split)", () => {
 	// A scope-too-large issue the Engineer labelled `pi:blocked` + `pi:needs-pm`
 	// (engineer.md Step 7) must go to the PM to split — not be re-dispatched to
