@@ -150,6 +150,22 @@ test("buildPmContext flags PM notes and resolved markers in issue summaries", as
 	assert.match(ctx, /note-resolved/);
 });
 
+test("buildPmContext surfaces owner-replied issues for triage", async () => {
+	const dir = await makeWorkspace();
+	const ctx = await buildPmContext({
+		workspace: dir,
+		config: { project: { name: "App", owner: "octocat", repo: "repo" } },
+		state: state([
+			issue(7, ["need-owner", "pi:blocked", "owner-replied"], "Need-owner: Telegram bot"),
+		]),
+		decision: { decision: "pm", persona: "pm", reason: "owner replied" },
+		ghFn: fakeGh(),
+	});
+	assert.match(ctx, /### Owner replies \(1\)/);
+	assert.match(ctx, /#7/);
+	assert.match(ctx, /owner-replied/);
+});
+
 test("readPolicyExcerpts reads only existing named policies", async () => {
 	const dir = await makeWorkspace({
 		"policies/issue-granularity.md": "# Issue Granularity\n\nKeep issues XS/S.\n",

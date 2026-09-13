@@ -280,6 +280,21 @@ export async function buildPmContext({ workspace, config, state, decision, ghFn 
 		lines.push(``);
 	}
 
+	// Owner replies (triage + answer per pm.md Step 1c).
+	const ownerReplied = issues.filter((i) => (i.labels || []).includes("owner-replied"));
+	lines.push(`### Owner replies (${ownerReplied.length})`, ``);
+	if (ownerReplied.length) {
+		lines.push(`The following issues carry \`owner-replied\`: the owner has commented (comments start with \`Owner:\`) and is waiting for a response. Read their comments, answer, and clear the label once handled (see Step 1c in your system prompt).`);
+		lines.push(``);
+		for (const i of ownerReplied) {
+			lines.push(`- #${i.number} **${i.title}** [${(i.labels || []).join(", ")}]`);
+		}
+		lines.push(``);
+	} else {
+		lines.push(`No owner replies pending.`, ``);
+		lines.push(``);
+	}
+
 	// Open PRs.
 	lines.push(`### Open PRs (${prs.length})`, ``);
 	if (prs.length) {

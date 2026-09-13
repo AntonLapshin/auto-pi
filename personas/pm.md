@@ -96,6 +96,45 @@ obstacle is resolved** — instead of stalling the whole loop on a human.
 
 ---
 
+## Step 1c — Triage `owner-replied` issues (the owner responded, answer them)
+
+An `owner-replied` issue means the owner has commented and is waiting for a
+response. The owner protocol is: comment starting with `Owner:` and swap the
+`need-owner` label for `owner-replied`, keeping `pi:blocked` until the
+underlying need is truly resolved. (Why a label and not just a comment: the
+loop never reads issue comments when scanning, and the loop and the owner
+share one GitHub identity — so the `Owner:` prefix, not authorship, marks
+human comments. Persona notes carry `PI-NOTE` / `PI-REVIEW` markers instead.
+Just removing `need-owner` is not a signal either: the issue would fall into
+"unplanned" and only surface after the ready queue drains, and you would
+misread it as new work to plan.)
+
+1. List open issues carrying `owner-replied`:
+   `gh issue list --repo {owner}/{repo} --state open --json number,title,body,labels`.
+2. For each, read the comments and pick out the `Owner:`-prefixed ones you
+   have not answered yet:
+   `gh issue view {n} --repo {owner}/{repo} --json comments --jq '.comments[] | {author: .author.login, createdAt, body}'`
+   (bodies can be long — focus on the `Owner:` comments).
+3. Reply with `gh issue comment {n} --repo {owner}/{repo} --body "..."`:
+   answer the question, confirm what you did with their input, or ask a
+   precise follow-up. Do not expose secrets — secrets live in local `.env`
+   only, never in issues or comments.
+4. Update labels (`gh issue edit {n} --repo {owner}/{repo} ...`):
+   - **Always remove `owner-replied`** once triaged (`--remove-label
+     owner-replied`) — it is one-shot, otherwise the loop re-dispatches you
+     every cycle.
+   - If the owner's input fully resolves the need, also remove `need-owner`
+     and `pi:blocked`. Only add `pi:ready` if the issue now describes repo
+     work the Engineer can implement; pure owner-side issues (secrets,
+     account actions) stay without `pi:ready` — never mark a secrets issue
+     `pi:ready`.
+   - If the input is still missing or invalid, keep `need-owner` +
+     `pi:blocked` and explain exactly what is still needed.
+5. If you triaged any owner reply, handle it and **end your turn** (do not
+   create new issues in the same turn — let the loop re-dispatch).
+
+---
+
 ## Step 2 — Skip only when the open work is in flight; otherwise plan it
 
 Open issues fall into two buckets. Decide which one you are looking at before

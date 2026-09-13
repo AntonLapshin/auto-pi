@@ -19,6 +19,7 @@
  * No open PRs → the previous PR is merged/closed, the Engineer may pick the
  * next task; PM spawns only after all PRs are merged and no issues remain:
  *   5. unresolved PM work (`pi:needs-pm`/`pi:pm-note`) → PM (split/unblock)
+ *   5b. owner replied (`owner-replied`)                → PM (triage + answer)
  *   6. open ready issues                       → Engineer
  *   7. open issues remain (unplanned/PM notes/blocked) → PM
  *   8. no open PRs and no open issues          → PM (finalize) — unless the
@@ -228,6 +229,21 @@ export function dispatch(inputs) {
 			decision: DECISION.PM,
 			persona: PERSONAS.PM,
 			reason: `issue(s) #${pmWork.map((i) => i.number).join(", #")} need PM attention (split/unblock)`,
+		};
+	}
+
+	// 5b. Owner replied → PM (triage + answer). An `owner-replied` issue means
+	//    the owner has commented (starting with `Owner:`) and is waiting for a
+	//    response. It routes to the PM ahead of ready work so a waiting human
+	//    gets a fast answer, but it is one-shot — the PM removes the label
+	//    once triaged (pm.md Step 1c) — so it can never starve the Engineer
+	//    the way a sticky `pi:blocked` would.
+	const ownerReplied = issues.filter((i) => i.labels.includes(LABELS.OWNER_REPLIED));
+	if (ownerReplied.length > 0) {
+		return {
+			decision: DECISION.PM,
+			persona: PERSONAS.PM,
+			reason: `issue(s) #${ownerReplied.map((i) => i.number).join(", #")} need owner-reply triage (owner responded)`,
 		};
 	}
 

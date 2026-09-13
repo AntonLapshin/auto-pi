@@ -270,6 +270,57 @@ test("dispatch: bare pi:blocked with no ready work → PM (revisit/unblock)", ()
 	assert.equal(d.persona, PERSONAS.PM);
 });
 
+test("dispatch: owner-replied issue → PM (triage before ready work)", () => {
+	// The owner commented (Owner:-prefixed) and swapped need-owner for
+	// owner-replied. The PM must triage + answer ahead of ready work so a
+	// waiting human gets a fast response.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([
+			issue(7, ["need-owner", "pi:blocked", "owner-replied"]),
+			issue(46, ["pi:ready"]),
+		]),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+	assert.match(d.reason, /#7/);
+});
+
+test("dispatch: owner-replied is one-shot and does not preempt an open PR", () => {
+	// While a PR is in flight the loop keeps working the PR; the owner reply
+	// is triaged once the PR merges (next cycle).
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state(
+			[issue(7, ["need-owner", "pi:blocked", "owner-replied"])],
+			[pr(50, ["pi:review-needed"], "none", true)],
+		),
+	});
+	assert.equal(d.decision, DECISION.REVIEW);
+	assert.equal(d.persona, PERSONAS.REVIEW);
+});
+
+test("dispatch: pi:needs-pm work keeps its existing order ahead of owner-replied", () => {
+	// Both route to the PM; unresolved PM notes (step 5) are checked before
+	// owner replies (step 5b). Either way the PM is dispatched next.
+	const d = dispatch({
+		stopped: false,
+		budget: { exceeded: false },
+		needsHuman: false,
+		state: state([
+			issue(1, ["pi:ready", "pi:blocked", "pi:needs-pm"]),
+			issue(7, ["need-owner", "pi:blocked", "owner-replied"]),
+		]),
+	});
+	assert.equal(d.decision, DECISION.PM);
+	assert.equal(d.persona, PERSONAS.PM);
+	assert.match(d.reason, /#1/);
+});
+
 test("dispatch order: changes-requested beats ready issue", () => {
 	const d = dispatch({
 		stopped: false,

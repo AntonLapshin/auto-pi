@@ -66,6 +66,15 @@ export const LABELS = {
 	BLOCKED: "pi:blocked",
 	PM_NOTE: "pi:pm-note",
 	NEEDS_PM: "pi:needs-pm",
+	// Owner-response signal (owner-in-the-loop): the owner comments on an
+	// issue (starting the comment with `Owner:`) and swaps `need-owner` for
+	// this label, keeping `pi:blocked` until the underlying need is truly
+	// resolved. The dispatcher routes these issues to the PM for triage, and
+	// the PM removes the label once answered. A bare comment (or just
+	// removing `need-owner`) is NOT a signal: the scanner never reads issue
+	// comments, and without this label the issue falls into "unplanned" and
+	// is only seen after the ready queue drains.
+	OWNER_REPLIED: "owner-replied",
 	APPROVED: "pi:approved",
 	MERGE_READY: "pi:merge-ready",
 	CHANGES_REQUESTED: "pi:changes-requested",
