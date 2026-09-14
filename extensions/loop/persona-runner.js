@@ -81,18 +81,21 @@ export function resolvePiModelSync(opts = {}) {
  * to the first attempt (config.pi.maxRetries).
  *
  * NOTE — retry asymmetry is intentional: persona retries are FEW and SLOW
- * (2 retries, 5s base) because each attempt spawns a full LLM session (tens of
- * seconds, real token cost), while `gh` API retries in `skills/github/core.js`
+ * (5 retries, 5s base, 120s cap) because each attempt spawns a full LLM session
+ * (tens of seconds, real token cost — providers may charge even for timed-out
+ * requests), while `gh` API retries in `skills/github/core.js`
  * are MANY and FAST (3 retries, 1s base) because API calls are cheap and
  * sub-second. Do not "align" these without accounting for the cost difference.
+ * Each retry is a FRESH `pi --no-session` invocation, not a resumed
+ * conversation: on-disk work survives, in-context progress does not.
  */
-export const DEFAULT_PERSONA_MAX_RETRIES = 2;
+export const DEFAULT_PERSONA_MAX_RETRIES = 5;
 
 /** Default base backoff delay (ms) between persona retries (config.pi.retryBaseDelayMs). */
 export const DEFAULT_PERSONA_RETRY_BASE_DELAY_MS = 5000;
 
 /** Default max backoff delay (ms) for persona retries (config.pi.retryMaxDelayMs). */
-export const DEFAULT_PERSONA_RETRY_MAX_DELAY_MS = 30000;
+export const DEFAULT_PERSONA_RETRY_MAX_DELAY_MS = 120000;
 
 /**
  * True when a persona (LLM) invocation failure looks transient and is worth
@@ -862,9 +865,9 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
  * config, auth rejection) fail fast without retrying.
  *
  * Retry behaviour is configurable via `config.pi.*`:
- *   - `maxRetries`        (default 2)   retries in addition to the first attempt
+ *   - `maxRetries`        (default 5)   retries in addition to the first attempt
  *   - `retryBaseDelayMs`  (default 5000) base backoff, doubles per retry
- *   - `retryMaxDelayMs`   (default 30000) cap on the backoff delay
+ *   - `retryMaxDelayMs`   (default 120000) cap on the backoff delay
  *
  * Only the final result is logged/recorded by `runPersona`; intermediate
  * failed attempts are surfaced via the optional `onRetry` callback (used by the

@@ -25,7 +25,7 @@ backs off on rate limits (M13). If you see repeated `gh retry ...` lines, check:
 
 > Retry budgets differ on purpose: `gh` API calls retry fast and often
 > (3 retries, 1s base — cheap sub-second calls), while persona LLM sessions
-> retry rarely and slowly (`pi.maxRetries` 2, 5s base — each attempt is a full
+> retry rarely and slowly (`pi.maxRetries` 5, 5s base, 120s cap — each attempt is a full
 > session with real token cost). See `skills/github/core.js` and
 > `extensions/loop/persona-runner.js`.
 

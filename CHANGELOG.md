@@ -29,6 +29,10 @@ All notable changes to the auto-pi harness. Format follows
   title-cased (`docs/github-token.md` → GitHub Token, `docs/README.md` →
   Documentation); size-label casing unified to lowercase (`size:xs`).
 - `ui/README.md` trimmed to a summary + link to `docs/ui.md`.
+- Persona LLM retry budget raised (`pi.maxRetries` 2 → 5,
+  `pi.retryMaxDelayMs` 30s → 120s) so transient provider degradation
+  (e.g. Gonka upstream timeouts / 429 overload) is absorbed in-run
+  instead of burning a loop cycle per blip.
 
 ## [0.1.0] — 2026-08-27
 

@@ -12,9 +12,9 @@
     "model": "",
     "provider": "",
     "contextMaxTokens": 0,
-    "maxRetries": 2,
+    "maxRetries": 5,
     "retryBaseDelayMs": 5000,
-    "retryMaxDelayMs": 30000
+    "retryMaxDelayMs": 120000
   },
   "loop": {
     "intervalSeconds": 60,

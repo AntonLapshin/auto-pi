@@ -32,6 +32,9 @@ into an existing project while preserving project-specific values.
 | `model` | string | `""` | Pi model id |
 | `provider` | string | `""` | Pi provider |
 | `contextMaxTokens` | int | `0` | model context window; `0` = unlimited (budget guard) |
+| `maxRetries` | int | `5` | retries (in addition to the first attempt) for a transient persona/LLM failure; each retry is a fresh session |
+| `retryBaseDelayMs` | int | `5000` | base backoff between persona retries; doubles per retry |
+| `retryMaxDelayMs` | int | `120000` | cap on the backoff between persona retries |
 
 ### `loop`
 

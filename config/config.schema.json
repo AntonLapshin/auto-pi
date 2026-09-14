@@ -25,9 +25,9 @@
         "model": { "type": "string" },
         "provider": { "type": "string" },
         "contextMaxTokens": { "type": "integer", "minimum": 0, "default": 0, "description": "Model context window. 0 = unlimited (no cap)." },
-        "maxRetries": { "type": "integer", "minimum": 0, "default": 2, "description": "Retries (in addition to the first attempt) for a transient persona/LLM invocation failure (M13)." },
+        "maxRetries": { "type": "integer", "minimum": 0, "default": 5, "description": "Retries (in addition to the first attempt) for a transient persona/LLM invocation failure (M13)." },
         "retryBaseDelayMs": { "type": "integer", "minimum": 0, "default": 5000, "description": "Base backoff delay (ms) between persona retries; doubles per retry (M13)." },
-        "retryMaxDelayMs": { "type": "integer", "minimum": 0, "default": 30000, "description": "Maximum backoff delay (ms) between persona retries (M13)." }
+        "retryMaxDelayMs": { "type": "integer", "minimum": 0, "default": 120000, "description": "Maximum backoff delay (ms) between persona retries (M13)." }
       }
     },
     "loop": {
