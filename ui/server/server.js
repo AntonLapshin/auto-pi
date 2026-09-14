@@ -17,6 +17,8 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v3: proj/loop,
+ *                     green-red dot, provider, succ/total gauge, persona)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -229,16 +231,24 @@ async function readLatestSummary(workspace) {
 	}
 }
 
-/** Build the tiny ESP-optimized status payload (<500 bytes, LAN polling).
- * Aggregates loop lock + last run/event + today's counts. Color is decided
- * server-side so the ESP32 firmware just draws it. */
+/** Build the tiny ESP-optimized status payload (LAN polling).
+ * v3 layout contract (170x320 portrait):
+ *   Project (Loop)  -> `proj`, `loop`
+ *   GREEN/RED pulsating dot -> `status` ("green" | "red", decided server-side)
+ *   Provider        -> `provider` (effective pi provider)
+ *   GAUGE           -> `succ` / `total` LLM calls (from health.jsonl)
+ *   Persona         -> `persona` (pm | engineer | review-engineer | qa | ...)
+ * Legacy fields (`last`, `runs`, `ok_n`, `fail_n`, `tok_today`, `err`) are kept
+ * so older firmware keeps working during the transition. */
 async function buildEspStatus(active) {
 	const workspace = active.workspace;
-	const [runs, events, errors, usage] = await Promise.all([
+	const config = await readConfig(workspace);
+	const [runs, events, errors, usage, health] = await Promise.all([
 		readRuns(workspace),
 		readEvents(workspace, { limit: 5 }),
 		readErrors(workspace),
 		readUsage(workspace),
+		readHealth(workspace, { limit: 1000 }),
 	]);
 	const loop = await loopState(workspace);
 	const now = Date.now();
@@ -253,34 +263,75 @@ async function buildEspStatus(active) {
 	const fail_n = runsToday.filter((r) => r.status === "error" || r.action === "error").length;
 	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
 	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
-	// Traffic-light logic.
-	let status = "grey";
-	if (!lastRun) {
-		status = loop.running ? "yellow" : "grey";
-	} else if (!loop.running) {
-		status = "red";
-	} else if ((lastRun.status === "error" || lastRun.action === "error") && ago_s >= 0 && ago_s < 900) {
-		status = "red";
-	} else if (ago_s < 0 || ago_s > 900) {
-		status = "red";
-	} else if (ago_s > 300) {
-		status = "yellow";
-	} else {
+
+	// Provider: effective resolution (config -> PI_* env -> pi settings), then
+	// fall back to the most recent non-empty provider in health.jsonl (older
+	// records were written with config-only resolution and may be empty), then
+	// infer from pi's authenticated providers (auth.json holds keys per
+	// provider — we expose only the name, never the key), then GONKA env hint.
+	let provider = String(resolveProviderModel({ config }).provider || "").slice(0, 24);
+	if (!provider) {
+		for (let i = health.length - 1; i >= 0; i -= 1) {
+			const p = String(health[i]?.provider || "").trim();
+			if (p) { provider = p.slice(0, 24); break; }
+		}
+	}
+	if (!provider) {
+		try {
+			const auth = JSON.parse(
+				await readFile(join(homedir(), ".pi", "agent", "auth.json"), "utf8"),
+			);
+			const names = Object.keys(auth || {}).filter((k) => auth[k]);
+			if (names.length) provider = String(names[0]).slice(0, 24);
+		} catch {
+			// best-effort — display falls back to "-" below
+		}
+	}
+	if (!provider && (process.env.GONKAAPI_API_KEY || process.env.JOINGONKA_API_KEY)) {
+		provider = process.env.JOINGONKA_API_KEY ? "joingonka" : "gonkaapi";
+	}
+	if (!provider) {
+		const hay = String(health.length ? (health[health.length - 1]?.reason || "") : "");
+		if (/gonka/i.test(hay)) provider = "gonkaapi";
+	}
+	provider = provider || "-";
+
+	// GAUGE: success / total LLM calls (raw health records = attempts).
+	let succ = 0;
+	for (const h of health) if (h.ok) succ += 1;
+	const total = health.length;
+
+	// Persona: active persona first (a started run means that persona is live),
+	// otherwise the last run's persona.
+	let persona = String(lastRun?.persona || "");
+	if (lastRun && (lastRun.status === "started" || lastRun.status === "running")) {
+		persona = String(lastRun.persona || persona);
+	}
+	persona = (persona || "-").slice(0, 24);
+
+	// Traffic-light logic (binary per v3 UI: GREEN = healthy + fresh, else RED).
+	// Green requires: loop on, recent activity (<=15 min), last run not an error.
+	let status = "red";
+	const lastFailed = lastRun && (lastRun.status === "error" || lastRun.action === "error");
+	if (loop.running && !lastFailed && ago_s >= 0 && ago_s <= 900) {
 		status = "green";
 	}
 	return {
 		ok: true,
-		status,
+		proj: String(active.projectName || "").slice(0, 24),
 		loop: Boolean(loop.running),
-		persona: String(lastRun?.persona || ""),
-		last,
+		status,
+		provider,
+		succ,
+		total,
+		persona,
 		ago_s,
+		last,
 		runs: runsToday.length,
 		ok_n,
 		fail_n,
 		tok_today,
 		err: errors.length,
-		proj: String(active.projectName || "").slice(0, 24),
 		at: new Date().toISOString(),
 	};
 }
