@@ -309,11 +309,16 @@ async function buildEspStatus(active) {
 	}
 	persona = (persona || "-").slice(0, 24);
 
-	// Traffic-light logic (binary per v3 UI: GREEN = healthy + fresh, else RED).
-	// Green requires: loop on, recent activity (<=15 min), last run not an error.
+	// Traffic-light logic (binary per v3 UI: GREEN = loop doing work, else RED).
+	// Green requires loop on, last run not an error, and either a persona
+	// actively running (work in progress — long sessions are normal) or fresh
+	// finished activity (<=15 min).
+	const activeP = Boolean(
+		lastRun && (lastRun.status === "started" || lastRun.status === "running"),
+	);
 	let status = "red";
 	const lastFailed = lastRun && (lastRun.status === "error" || lastRun.action === "error");
-	if (loop.running && !lastFailed && ago_s >= 0 && ago_s <= 900) {
+	if (loop.running && !lastFailed && (activeP || (ago_s >= 0 && ago_s <= 900))) {
 		status = "green";
 	}
 	return {
