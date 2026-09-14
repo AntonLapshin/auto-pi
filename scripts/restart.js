@@ -2,24 +2,17 @@
 /**
  * Fallback CLI entry for the auto-pi `/loop-restart` command.
  *
- * Safely restarts the autonomous loop for the active project: writes the stop
- * file so the running loop (if any) exits at its next cycle boundary — letting
- * any in-flight persona finish — waits for it to actually exit, removes the
- * stop marker, and starts a fresh loop detached.
+ * Restarts the autonomous loop for the active project instantly: SIGKILLs the
+ * running loop (if any) with no graceful cycle-boundary wait — an in-flight
+ * persona is terminated immediately — then starts a fresh loop detached.
  *
  * Unlike `/loop-stop`, the active-project record is preserved, so the restarted
  * loop resumes the same project.
  *
  *   npm run restart            # restart the active project's loop
- *   npm run restart -- --timeout 120  # wait up to 120s for the old loop to exit
  *
- * Flags:
- *   --timeout N   seconds to wait for the running loop to exit (default 60)
- *   --help        show usage
- *
- * Exit codes: 0 ok · 1 operational failure (no active project, restart
- * failed, or timed out waiting for the old loop — it was asked to stop and
- * will exit on its own; run again shortly) · 2 usage/config error.
+ * Exit codes: 0 ok · 1 operational failure (no active project or restart
+ * failed) · 2 usage/config error.
  */
 
 import { fileURLToPath } from "node:url";
@@ -30,13 +23,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function usage() {
 	return [
-		"auto-pi restart — safely restart the active project's autonomous loop",
+		"auto-pi restart — instantly restart the active project's autonomous loop",
 		"",
 		"Usage:",
-		"  node scripts/restart.js [--timeout N]",
+		"  node scripts/restart.js",
 		"",
 		"Flags:",
-		"  --timeout N   seconds to wait for the running loop to exit (default 60)",
 		"  --help        show this usage",
 	].join("\n");
 }
@@ -47,8 +39,6 @@ async function main() {
 		process.stdout.write(usage() + "\n");
 		process.exit(0);
 	}
-	const timeoutMatch = argv.find((a) => a.startsWith("--timeout=")) || null;
-	const timeoutSec = timeoutMatch ? parseInt(timeoutMatch.split("=")[1], 10) : undefined;
 
 	const activeRes = await readActiveProject();
 	if (!activeRes.ok) {
@@ -59,10 +49,8 @@ async function main() {
 	const workspace = activeRes.active.workspace;
 
 	const io = { log: (line) => process.stdout.write(`[auto-pi:restart] ${line}\n`) };
-	const result = await restartLoop(workspace, { timeoutMs: timeoutSec ? timeoutSec * 1000 : undefined, ...io });
+	const result = await restartLoop(workspace, io);
 	process.stdout.write(result.message + "\n");
-	// A timeout is an operational failure (exit 1), not a usage error: the old
-	// loop was asked to stop and will exit on its own.
 	process.exit(result.ok ? 0 : 1);
 }
 

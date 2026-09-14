@@ -42,7 +42,7 @@ After installation, all 11 slash commands are available (see
 | `/loop-seed` | Spin up a new project (clarify, create repo, scaffold, start loop) |
 | `/loop-pull` | Continue an existing project on this machine from its GitHub repo |
 | `/loop-stop` | Pause the autonomous loop (project stays active) |
-| `/loop-restart` | Safely restart the autonomous loop (stop, then start again) |
+| `/loop-restart` | Restart the autonomous loop instantly (kill, then start again) |
 | `/loop-switch` | Switch the active project to another locally-seeded project |
 | `/loop-status` | Active project, loop, and persona status |
 | `/loop-logs` | Show the latest local logs |

@@ -334,6 +334,108 @@ export async function removeStopFile(workspace) {
 }
 
 /**
+ * Remove the loop lock file unconditionally (plan.md §13.2).
+ *
+ * Unlike {@link releaseLock} (which only removes a self-owned lock), this is
+ * used after an instant kill where the dead loop can no longer release its own
+ * lock. Best-effort; never throws.
+ *
+ * @param {string} workspace
+ * @returns {Promise<boolean>} true when the lock file is now absent
+ */
+export async function forceRemoveLock(workspace) {
+	try {
+		await rm(paths(workspace).lock, { force: true });
+	} catch {
+		// best-effort
+	}
+	return !(await checkLock(workspace)).locked;
+}
+
+/**
+ * Kill a running loop process instantly (SIGKILL, no graceful shutdown).
+ *
+ * Sends SIGKILL to the loop PID recorded in the lock file (plus its process
+ * group — the loop runs detached under `setsid`, so its pgid equals its PID
+ * and this also takes down any in-flight persona child) and force-removes the
+ * lock file so a fresh loop can start immediately.
+ *
+ * Safety guards: never kills PID 1, never kills our own process (a live lock
+ * owned by this process is treated as already-exited for kill purposes — the
+ * lock file is still cleared).
+ *
+ * @param {string} workspace
+ * @param {object} [opts] { kill?, signal? } — `kill(pid, signal)` injectable for tests
+ * @returns {Promise<{ killed: boolean, pid: number|null }>}
+ */
+export async function killLoopInstantly(workspace, opts = {}) {
+	const kill = opts.kill || ((pid, signal) => process.kill(pid, signal));
+	const signal = opts.signal || "SIGKILL";
+	const lock = await checkLock(workspace);
+	if (!lock.locked || !lock.pid) {
+		return { killed: false, pid: lock.pid };
+	}
+	const pid = Number(lock.pid);
+	if (pid && pid > 1 && pid !== process.pid) {
+		try {
+			kill(pid, signal);
+		} catch {
+			// already dead / not ours — the lock cleanup below still applies
+		}
+		try {
+			// The loop runs under `setsid`, so its process group id == its PID.
+			// Killing the group also stops an in-flight persona child instantly.
+			kill(-pid, signal);
+		} catch {
+			// process groups may not exist on all platforms — best-effort
+		}
+	}
+	await forceRemoveLock(workspace);
+	return { killed: true, pid };
+}
+
+/**
+ * Stop the autonomous loop for a project instantly — the core of `/loop-stop`.
+ *
+ * Kills the running loop process (SIGKILL, no graceful cycle-boundary wait)
+ * and writes the stop file so the project stays paused until resumed. The
+ * active-project record is preserved, so the project can be resumed
+ * (`/loop-resume`) or restarted (`/loop-restart`) anytime.
+ *
+ * @param {string} workspace absolute project root
+ * @param {object} [opts] { log?, kill?, signal? }
+ * @returns {Promise<{ ok: boolean, wasRunning: boolean, pid?: number|null, message: string }>}
+ */
+export async function stopLoopInstantly(workspace, opts = {}) {
+	const log = opts.log || ((line) => process.stdout.write(`[loop-stop] ${line}\n`));
+	const lock = await checkLock(workspace);
+	const wasRunning = Boolean(lock.locked);
+	if (wasRunning) {
+		log(`killing loop PID ${lock.pid} instantly (${opts.signal || "SIGKILL"})...`);
+		await killLoopInstantly(workspace, opts);
+		log(`loop PID ${lock.pid} killed.`);
+	} else if (lock.stale) {
+		log("stale lock found — cleaning up.");
+		await forceRemoveLock(workspace);
+	}
+	const stopFile = await writeStopFile(workspace);
+	if (wasRunning) {
+		return {
+			ok: true,
+			wasRunning: true,
+			pid: lock.pid,
+			message: `Loop killed instantly (was PID ${lock.pid}). Stop file written: ${stopFile}`,
+		};
+	}
+	return {
+		ok: true,
+		wasRunning: false,
+		pid: null,
+		message: `No running loop found. Stop file written: ${stopFile}`,
+	};
+}
+
+/**
  * Poll until a running loop process (identified by the loop-lock PID) has
  * exited, then confirm the lock is free. The loop is stopped *cooperatively*:
  * writing the stop file makes it exit at its next cycle boundary, and any
@@ -399,72 +501,53 @@ export async function startLoopDetached(workspace) {
  * Restart the autonomous loop for the active project — the core of the
  * `/loop-restart` command.
  *
- * Safely stops any existing loop, then starts a fresh one:
+ * Restarts instantly with no graceful shutdown:
  *
- *   1. Write the stop file so the running loop (if any) exits at its next cycle
- *      boundary — a persona in flight finishes normally (no SIGKILL).
- *   2. Wait (poll) for the loop process to actually exit so its lock is released
- *      and it can't fight the new loop for the lock. Times out after
- *      `opts.timeoutMs` (default 60s) and aborts if the old loop hasn't exited —
- *      starting a second loop while the first still runs would fail the lock.
- *   3. Remove the stop file so the fresh loop doesn't immediately exit.
- *   4. Start a new loop detached (`setsid nohup`).
+ *   1. SIGKILL the running loop (if any) plus its process group — an in-flight
+ *      persona is terminated immediately, never waited for — and force-remove
+ *      the lock file so the new loop can own the lock right away.
+ *   2. Remove the stop file so the fresh loop doesn't immediately exit.
+ *   3. Start a new loop detached (`setsid nohup`).
  *
  * Unlike `/loop-stop`, the active-project record is preserved — the project is
  * restarted, not finished — so the new loop resumes the same project.
  *
  * @param {string} workspace absolute project root
- * @param {object} [opts] { log?, timeoutMs?, intervalMs?, start? }
- * @returns {Promise<{ ok: boolean, pid?: number, message: string, wasRunning: boolean, timedOut?: boolean }>}
+ * @param {object} [opts] { log?, start?, kill?, signal? } (`timeoutMs`/`intervalMs`
+ *   are accepted for backwards compatibility but ignored — nothing waits.)
+ * @returns {Promise<{ ok: boolean, pid?: number, message: string, wasRunning: boolean }>}
  */
 export async function restartLoop(workspace, opts = {}) {
 	const log = opts.log || ((line) => process.stdout.write(`[loop-restart] ${line}\n`));
-	const timeoutMs = Number(opts.timeoutMs) || 60_000;
-	const intervalMs = Number(opts.intervalMs) || 1500;
 	const start = opts.start || startLoopDetached;
 
-	// 1. Request a clean stop.
-	await writeStopFile(workspace);
-	log("stop file written — requesting the running loop to stop safely.");
-
-	// 2. Wait for the running loop (if any) to exit so the new loop can own the lock.
+	// 1. Kill any running loop instantly (no graceful cycle-boundary wait).
 	const initial = await checkLock(workspace);
-	let wasRunning = Boolean(initial.locked);
+	const wasRunning = Boolean(initial.locked);
 	if (initial.locked) {
-		log(`waiting for loop PID ${initial.pid} to exit (up to ${Math.round(timeoutMs / 1000)}s)...`);
-		const wait = await waitForLoopExit(workspace, timeoutMs, intervalMs);
-		if (!wait.ok) {
-			// Abort rather than risk a double loop. Leave the stop file in place so
-			// the still-running loop exits on its own once the current cycle ends.
-			log(`timed out waiting for loop PID ${wait.pid} to exit — aborting restart.`);
-			return {
-				ok: false,
-				message: `Timed out waiting for the running loop (PID ${wait.pid}) to exit. It may still be running a persona. The loop has been asked to stop and will exit on its own; run /loop-restart again shortly.`,
-				timedOut: true,
-				wasRunning: true,
-				pid: wait.pid,
-			};
-		}
-		log(`loop exited cleanly (PID ${initial.pid}).`);
+		log(`killing loop PID ${initial.pid} instantly (${opts.signal || "SIGKILL"})...`);
+		await killLoopInstantly(workspace, opts);
+		log(`loop PID ${initial.pid} killed.`);
 	} else if (initial.stale) {
 		log("stale lock found — cleaning up before restart.");
+		await forceRemoveLock(workspace);
 	}
 
-	// 3. Remove the stop file so the fresh loop runs rather than exiting.
+	// 2. Remove the stop file so the fresh loop runs rather than exiting.
 	await removeStopFile(workspace);
 
-	// 4. Start a new loop detached.
+	// 3. Start a new loop detached.
 	const started = await start(workspace);
 	if (!started.ok) {
 		log(`failed to start the loop: ${started.message || "unknown error"}`);
-		return { ok: false, wasRunning, message: `Stopped the old loop but could not start a new one: ${started.message || "unknown error"}` };
+		return { ok: false, wasRunning, message: `Killed the old loop but could not start a new one: ${started.message || "unknown error"}` };
 	}
 	log(`loop started (PID ${started.pid || "?"}).`);
 	return {
 		ok: true,
 		pid: started.pid,
 		wasRunning,
-		message: `Loop restarted (${wasRunning ? `stopped PID ${initial.pid} and ` : ""}started PID ${started.pid || "?"}). Check .pi/logs/loop.out.`,
+		message: `Loop restarted instantly (${wasRunning ? `killed PID ${initial.pid} and ` : ""}started PID ${started.pid || "?"}). Check .pi/logs/loop.out.`,
 	};
 }
 

@@ -17,8 +17,8 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v3: proj/loop,
- *                     green-red dot, provider, succ/total gauge, persona)
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v4: proj/loop,
+ *                     green-red dot, provider, model, succ/total gauge, persona)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -232,10 +232,11 @@ async function readLatestSummary(workspace) {
 }
 
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v3 layout contract (170x320 portrait):
+ * v4 layout contract (170x320 portrait):
  *   Project (Loop)  -> `proj`, `loop`
  *   GREEN/RED pulsating dot -> `status` ("green" | "red", decided server-side)
  *   Provider        -> `provider` (effective pi provider)
+ *   Model           -> `model` (effective pi model, e.g. DeepSeek-V4-Flash-0731)
  *   GAUGE           -> `succ` / `total` LLM calls (from health.jsonl)
  *   Persona         -> `persona` (pm | engineer | review-engineer | qa | ...)
  * Legacy fields (`last`, `runs`, `ok_n`, `fail_n`, `tok_today`, `err`) are kept
@@ -296,6 +297,18 @@ async function buildEspStatus(active) {
 	}
 	provider = provider || "-";
 
+	// Model: same effective resolution as the provider (config -> PI_* env ->
+	// pi settings), then the most recent non-empty model in health.jsonl.
+	// Truncated for the tiny display; "-" when unknown.
+	let model = String(resolveProviderModel({ config }).model || "").slice(0, 48);
+	if (!model) {
+		for (let i = health.length - 1; i >= 0; i -= 1) {
+			const m = String(health[i]?.model || "").trim();
+			if (m) { model = m.slice(0, 48); break; }
+		}
+	}
+	model = model || "-";
+
 	// GAUGE: success / total LLM calls (raw health records = attempts).
 	let succ = 0;
 	for (const h of health) if (h.ok) succ += 1;
@@ -332,6 +345,7 @@ async function buildEspStatus(active) {
 		loop: effectiveRunning,
 		status,
 		provider,
+		model,
 		succ,
 		total,
 		persona,

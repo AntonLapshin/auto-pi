@@ -49,9 +49,10 @@ The harness enforces **exactly one active project per machine** at a time. This 
 the loop's state, lock file, and budget accounting unambiguous. The active project is
 recorded in `~/.auto-pi/current-project.json`.
 
-- `/loop-stop` (or `npm run stop`) **pauses** the active project's loop: it writes the
-  stop file (so the loop exits at its next cycle) but **preserves the active-project
-  record**, so the project can be resumed or restarted anytime.
+- `/loop-stop` (or `npm run stop`) **pauses** the active project's loop: it kills
+  the loop process instantly (SIGKILL, no graceful wait) and writes the stop
+  file, but **preserves the active-project record**, so the project can be
+  resumed or restarted anytime.
 - `/loop-switch` (or `npm run switch`) stops the current project's loop, points the
   active-project record at a target locally-seeded project, and starts its loop. The
   previous project's workspace/state are preserved, so you can switch back anytime.
@@ -64,9 +65,9 @@ recorded in `~/.auto-pi/current-project.json`.
   active project, and starts the loop — so you can `/loop-switch`, `/loop-status`,
   etc. exactly as if it had been seeded here.
 - `/loop-restart` (or `npm run restart`) **restarts** the loop for the same project
-  rather than pausing it: it safely stops the running loop (any in-flight persona
-  finishes normally, never killed), waits for it to exit, and starts a fresh loop.
-  Use `--timeout N` to control how long it waits for the old loop to exit (default 60s).
+  rather than pausing it: it kills the running loop instantly (SIGKILL, no
+  graceful wait — an in-flight persona is terminated immediately) and starts a
+  fresh loop.
 
 ## Installation
 
@@ -85,7 +86,7 @@ installation the following slash commands are available:
 | `/loop-seed`   | Spin up a new project (clarify, create repo, scaffold, start loop) |
 | `/loop-pull`   | Continue an existing project on this machine from its GitHub repo |
 | `/loop-stop`   | Pause the autonomous loop (project stays active) |
-| `/loop-restart`| Safely restart the autonomous loop (stop, then start again) |
+| `/loop-restart`| Restart the autonomous loop instantly (kill, then start again) |
 | `/loop-switch` | Switch the active project to another locally-seeded project |
 | `/loop-status` | Active project, loop, and persona status     |
 | `/loop-logs`   | Show the latest local logs                   |

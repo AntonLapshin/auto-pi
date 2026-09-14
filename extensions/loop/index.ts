@@ -2,10 +2,10 @@
  * The auto-pi `/loop`, `/loop-stop`, `/loop-restart`, and `/loop-switch` commands (M6).
  *
  * `/loop` starts the autonomous loop for the active project (or reports that a
- * loop is already running). `/loop-stop` pauses it by writing the stop file
- * (the active-project record is preserved, so it can be resumed/restarted).
- * `/loop-restart` safely restarts it: stop the running loop (waiting for it to
- * exit cleanly), then start it again. `/loop-switch` moves the active project
+ * loop is already running). `/loop-stop` kills it instantly via SIGKILL (the
+ * active-project record is preserved, so it can be resumed/restarted).
+ * `/loop-restart` instantly restarts it: SIGKILL the running loop (no graceful
+ * wait), then start it again. `/loop-switch` moves the active project
  * to another locally-seeded project: it stops the current loop, points the
  * active-project record at the target, and starts its loop.
  *
@@ -20,7 +20,7 @@ import {
 	runLoopCycle,
 	readActiveProject,
 	checkLock,
-	writeStopFile,
+	stopLoopInstantly,
 	restartLoop,
 	switchProject,
 	listProjects,
@@ -95,7 +95,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("loop-stop", {
-		description: "Pause the autonomous loop for the active project (writes the stop file; the project stays active so it can be resumed/restarted)",
+		description: "Stop the autonomous loop for the active project instantly (SIGKILL, no graceful wait; the project stays active so it can be resumed/restarted)",
 		handler: async (_args, ctx) => {
 			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
 				ctx.ui.notify(text, level);
@@ -106,8 +106,10 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const workspace = activeRes.active.workspace;
-			const stopFile = await writeStopFile(workspace);
-			notify(`Stop file written: ${stopFile}. The loop will exit at its next cycle.`);
+			const result = await stopLoopInstantly(workspace, {
+				log: (line: string) => process.stdout.write(`[loop-stop] ${line}\n`),
+			});
+			notify(result.message, result.ok ? "success" : "error");
 			// Stopping only pauses the loop — the active-project record is preserved
 			// so the same project can be resumed (/loop-resume) or restarted
 			// (/loop-restart) anytime. Use /loop-switch to move to another project.
@@ -154,8 +156,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("loop-restart", {
 		description:
-			"Safely restart the autonomous loop for the active project: stop the running loop (let it finish its current cycle), then start it again",
-		handler: async (args, ctx) => {
+			"Restart the autonomous loop for the active project instantly: SIGKILL the running loop (no graceful wait), then start it again",
+		handler: async (_args, ctx) => {
 			const notify = (text: string, level: "info" | "success" | "warning" | "error" = "info") =>
 				ctx.ui.notify(text, level);
 
@@ -166,24 +168,11 @@ export default function (pi: ExtensionAPI) {
 			}
 			const workspace = activeRes.active.workspace;
 
-			// Optional: how long to wait for the running loop to exit cleanly
-			// before aborting (default 60s, or a persona may still be finishing).
-			const arg = String(args ?? "").trim();
-			const timeoutMatch = /--timeout[= ](\d+)/i.exec(arg);
-			const timeoutMs = timeoutMatch ? Number(timeoutMatch[1]) * 1000 : undefined;
-
 			const result = await restartLoop(workspace, {
-				timeoutMs,
 				log: (line: string) => process.stdout.write(`[loop-restart] ${line}\n`),
 			});
 
-			if (result.ok) {
-				notify(result.message, "success");
-			} else if (result.timedOut) {
-				notify(result.message, "warning");
-			} else {
-				notify(result.message, "error");
-			}
+			notify(result.message, result.ok ? "success" : "error");
 			process.stdout.write(result.message + "\n");
 		},
 	});

@@ -22,6 +22,9 @@ import {
 	acquireLock,
 	checkLock,
 	releaseLock,
+	forceRemoveLock,
+	killLoopInstantly,
+	stopLoopInstantly,
 	isStopped,
 	readConfig,
 	readActiveProject,
@@ -891,7 +894,7 @@ test("waitForLoopExit times out while a loop PID is still alive", async () => {
 	assert.equal(res.pid, process.pid);
 });
 
-test("restartLoop with no running loop stops, re-arms, and starts a fresh loop", async () => {
+test("restartLoop with no running loop removes the stop marker and starts a fresh loop", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-none-"));
 	await mkdir(join(dir, ".pi", "state"), { recursive: true });
 
@@ -912,31 +915,43 @@ test("restartLoop with no running loop stops, re-arms, and starts a fresh loop",
 	assert.equal(await isStopped(dir), false);
 });
 
-test("restartLoop aborts (does not start) if the running loop does not exit in time", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-live-"));
+test("restartLoop kills a running loop instantly (SIGKILL, no wait) and starts a fresh loop", async () => {
+	const { spawn } = await import("node:child_process");
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-kill-"));
 	await mkdir(join(dir, ".pi", "state"), { recursive: true });
-	// A live lock owned by this process — it can never exit during the wait.
-	await writeLock(dir, process.pid);
+	// A genuinely live loop process.
+	const child = spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+	child.unref();
+	try {
+		await writeLock(dir, child.pid);
+		const before = await checkLock(dir);
+		assert.equal(before.locked, true);
 
-	let started = 0;
-	const result = await restartLoop(dir, {
-		timeoutMs: 300,
-		intervalMs: 50,
-		start: async () => {
-			started += 1;
-			return { ok: true, pid: 9999 };
-		},
-	});
+		let started = 0;
+		const result = await restartLoop(dir, {
+			log: () => {},
+			start: async () => {
+				started += 1;
+				return { ok: true, pid: 9999 };
+			},
+		});
 
-	assert.equal(result.ok, false);
-	assert.equal(result.timedOut, true);
-	assert.equal(result.wasRunning, true);
-	assert.equal(started, 0);
-	// The stop file is left in place so the still-running loop exits on its own.
-	assert.equal(await isStopped(dir), true);
+		assert.equal(result.ok, true);
+		assert.equal(result.wasRunning, true);
+		assert.equal(started, 1);
+		assert.match(result.message, /killed/);
+		// The old loop process is dead (SIGKILL, not a graceful wait).
+		await new Promise((r) => setTimeout(r, 200));
+		assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
+		// The lock is cleared and no stop marker is left behind.
+		assert.equal((await checkLock(dir)).locked, false);
+		assert.equal(await isStopped(dir), false);
+	} finally {
+		try { process.kill(child.pid, "SIGKILL"); } catch { /* already dead */ }
+	}
 });
 
-test("restartLoop stops a running loop, waits for its exit, then restarts", async () => {
+test("restartLoop clears a stale lock and starts a fresh loop", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-restart-run-"));
 	const stateDir = join(dir, ".pi", "state");
 	await mkdir(stateDir, { recursive: true });
@@ -956,6 +971,86 @@ test("restartLoop stops a running loop, waits for its exit, then restarts", asyn
 	assert.equal(result.ok, true);
 	assert.equal(started, 1);
 	assert.equal(await isStopped(dir), false);
+});
+
+// --- /loop-stop: instant kill (SIGKILL, no graceful wait) ---
+
+test("killLoopInstantly is a no-op when no loop is running", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-kill-none-"));
+	const res = await killLoopInstantly(dir);
+	assert.equal(res.killed, false);
+});
+
+test("killLoopInstantly SIGKILLs a live loop process and clears the lock", async () => {
+	const { spawn } = await import("node:child_process");
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-kill-live-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	const child = spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+	child.unref();
+	try {
+		await writeLock(dir, child.pid);
+		assert.equal((await checkLock(dir)).locked, true);
+		const res = await killLoopInstantly(dir);
+		assert.equal(res.killed, true);
+		assert.equal(res.pid, child.pid);
+		await new Promise((r) => setTimeout(r, 200));
+		assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
+		assert.equal((await checkLock(dir)).locked, false);
+	} finally {
+		try { process.kill(child.pid, "SIGKILL"); } catch { /* already dead */ }
+	}
+});
+
+test("killLoopInstantly never kills our own process (self-owned live lock)", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-kill-self-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await writeLock(dir, process.pid);
+	const kills = [];
+	const res = await killLoopInstantly(dir, { kill: (pid, signal) => { kills.push([pid, signal]); } });
+	assert.equal(res.killed, true);
+	assert.equal(kills.length, 0);
+	// We're still alive and the lock is cleared.
+	process.kill(process.pid, 0);
+	assert.equal((await checkLock(dir)).locked, false);
+});
+
+test("stopLoopInstantly kills a running loop and writes the stop file", async () => {
+	const { spawn } = await import("node:child_process");
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-stop-kill-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	const child = spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+	child.unref();
+	try {
+		await writeLock(dir, child.pid);
+		const result = await stopLoopInstantly(dir, { log: () => {} });
+		assert.equal(result.ok, true);
+		assert.equal(result.wasRunning, true);
+		assert.equal(result.pid, child.pid);
+		await new Promise((r) => setTimeout(r, 200));
+		assert.throws(() => process.kill(child.pid, 0), /ESRCH/);
+		assert.equal(await isStopped(dir), true);
+		assert.equal((await checkLock(dir)).locked, false);
+	} finally {
+		try { process.kill(child.pid, "SIGKILL"); } catch { /* already dead */ }
+	}
+});
+
+test("stopLoopInstantly with no running loop just writes the stop file", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-stop-idle-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	const result = await stopLoopInstantly(dir, { log: () => {} });
+	assert.equal(result.ok, true);
+	assert.equal(result.wasRunning, false);
+	assert.equal(await isStopped(dir), true);
+});
+
+test("forceRemoveLock clears a stale lock file", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-force-lock-"));
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await writeLock(dir, 2147483647); // dead PID — stale
+	const cleared = await forceRemoveLock(dir);
+	assert.equal(cleared, true);
+	assert.equal((await checkLock(dir)).locked, false);
 });
 
 // --- /loop-switch: discover, resolve, and switch the active project ---

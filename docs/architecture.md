@@ -98,7 +98,7 @@ under `~/.auto-pi/workspaces/{owner}/{repo}/repo` with harness state in
 - `.pi/runs/{runId}/` — per-run context/stdout/stderr
 - `.pi/local.json` — secrets (git-ignored, never committed)
 
-`/loop-stop` pauses (writes the stop file, keeps the record);
+`/loop-stop` pauses (SIGKILLs the loop instantly, writes the stop file, keeps the record);
 `/loop-resume` clears it; `/loop-switch` moves the record to another local
 project; `/loop-seed` stops the current loop first (**stop-then-seed**),
 then seeds the new project as active. See

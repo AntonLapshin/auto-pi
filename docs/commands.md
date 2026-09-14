@@ -8,8 +8,8 @@ Label vocabulary (`pi:*`, `size:*`, …) is defined once in the
 | Command | Purpose | Fallback CLI |
 |---------|---------|--------------|
 | `/loop-seed` | Initiate a new project (clarify, create repo, scaffold, start loop) | `npm run seed` |
-| `/loop-stop` | Pause the autonomous loop (project stays active) | `npm run stop` |
-| `/loop-restart` | Safely restart the autonomous loop | `npm run restart` |
+| `/loop-stop` | Stop the autonomous loop instantly (project stays active) | `npm run stop` |
+| `/loop-restart` | Restart the autonomous loop instantly | `npm run restart` |
 | `/loop-switch` | Switch the active project to another locally-seeded project | `npm run switch` |
 | `/loop-status` | Show active project, loop, last run, issues/PRs, budget | `npm run status` |
 | `/loop-logs` | Show the latest local logs | `npm run logs` |
@@ -42,10 +42,11 @@ elaborate it; the `<description>` argument (optional) is used for that clarifica
 
 ## `/loop-stop`
 
-Pauses the autonomous loop for the active project by writing the stop file (the
-loop exits at its next cycle). The **active-project record is preserved**, so
-the same project can be resumed or restarted anytime — this is a pause, not a
-"finish".
+Stops the autonomous loop for the active project instantly: it SIGKILLs the
+running loop process (no graceful cycle-boundary wait — an in-flight persona is
+terminated immediately) and writes the stop file. The **active-project record
+is preserved**, so the same project can be resumed or restarted anytime — this
+is a pause, not a "finish".
 
 ```bash
 /loop-stop
@@ -114,27 +115,20 @@ had been seeded on this machine: `/loop-switch`, `/loop-status`, `/loop-logs`,
 
 ## `/loop-restart`
 
-Safely restarts the autonomous loop for the **same** active project. Unlike
+Restarts the autonomous loop for the **same** active project instantly. Unlike
 `/loop-stop`, the active-project record is **preserved**, so the restarted loop
 resumes the same project.
 
-It restarts safely by:
+It restarts with no graceful shutdown:
 
-1. writing the stop file so the running loop (if any) exits at its next cycle
-   boundary — any in-flight persona finishes normally (never SIGKILLed);
-2. waiting (polling) for the loop process to actually exit so its lock is
-   released and it can't fight the new loop for the lock;
-3. removing the stop marker so the fresh loop doesn't immediately exit;
-4. starting a new loop detached (`setsid nohup`, output to `.pi/logs/loop.out`).
-
-If the old loop hasn't exited within the timeout (it may be mid-persona), the
-restart aborts rather than risk a double loop — the loop has been asked to stop
-and will exit on its own; run `/loop-restart` again shortly. Use `--timeout N`
-to wait up to *N* seconds (default 60).
+1. SIGKILL the running loop (if any) plus its process group — an in-flight
+   persona is terminated immediately, never waited for — and force-remove the
+   lock file so the new loop owns the lock right away;
+2. remove the stop marker so the fresh loop doesn't immediately exit;
+3. start a new loop detached (`setsid nohup`, output to `.pi/logs/loop.out`).
 
 ```bash
 /loop-restart
-/loop-restart --timeout 120
 npm run restart
 ```
 
@@ -191,7 +185,7 @@ up new default knobs.
 Shows the LLM **provider/model the loop is currently using** and lets you switch
 it, mirroring pi's built-in `/model` command but for the autonomous loop. The
 selection is persisted to the active project's `.pi/config.json`
-(`config.pi.provider` / `config.pi.model`) and the loop is **safely restarted**
+(`config.pi.provider` / `config.pi.model`) and the loop is **restarted instantly**
 so every future persona run uses the new provider.
 
 Behaviors:
@@ -215,8 +209,7 @@ Behaviors:
 ```
 
 Because the loop is restarted to apply the change, any persona currently in
-flight finishes normally before the switch takes effect (the same safe restart
-as `/loop-restart`).
+flight is terminated immediately (the same instant restart as `/loop-restart`).
 
 ## `/loop-doctor`
 
