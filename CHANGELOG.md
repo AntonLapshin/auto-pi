@@ -33,6 +33,11 @@ All notable changes to the auto-pi harness. Format follows
   `pi.retryMaxDelayMs` 30s → 120s) so transient provider degradation
   (e.g. Gonka upstream timeouts / 429 overload) is absorbed in-run
   instead of burning a loop cycle per blip.
+- Persona LLM retries now CONTINUE the same pi session (`--session-id <runId>`
+  + short "continue" message) instead of restarting from scratch, so a 429 /
+  upstream timeout near the end of a persona run resumes where it left off;
+  after `pi.maxRetries` (5) failed continues the next dispatch starts a new
+  session as before.
 
 ## [0.1.0] — 2026-08-27
 

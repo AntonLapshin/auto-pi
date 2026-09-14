@@ -24,6 +24,7 @@ import {
 	runPersonaWithRetry,
 	executePi,
 	buildPersonaArgs,
+	buildContinuePersonaArgs,
 	loadPersonaPromptSync,
 	parseJsonModeOutput,
 	DEFAULT_PERSONA_MAX_RETRIES,
@@ -118,7 +119,10 @@ test("buildPersonaArgs includes persona flags and model/provider, and does NOT p
 		},
 	});
 	assert.ok(args.includes("-p"));
-	assert.ok(args.includes("--no-session"));
+	assert.ok(args.includes("--session-id"));
+	assert.ok(args.includes("engineer-1"));
+	assert.ok(!args.includes("--no-session"), "persona sessions persist so retries can continue them");
+	assert.ok(!args.includes("--continue"), "--continue conflicts with --session-id; resume is via the same --session-id");
 	assert.ok(args.includes("--mode"));
 	assert.ok(args.includes("json"), "persona runs use pi JSON mode so token usage is captured");
 	assert.ok(args.includes("--name"));
@@ -138,6 +142,27 @@ test("buildPersonaArgs includes persona flags and model/provider, and does NOT p
 	// The persona prompt is appended to the system prompt.
 	assert.ok(args.includes("--append-system-prompt"));
 	assert.ok(args.includes("/tmp/ctx.md"));
+});
+
+test("buildContinuePersonaArgs resumes the same session with a short continue message", () => {
+	const args = buildContinuePersonaArgs({
+		runId: "engineer-1",
+		persona: "engineer",
+		attempt: 1,
+		reason: "429 overloaded",
+		config: { pi: { provider: "openai", model: "gpt-4o" } },
+	});
+	assert.ok(args.includes("-p"));
+	assert.ok(args.includes("--session-id"));
+	assert.ok(args.includes("engineer-1"));
+	assert.ok(!args.includes("--no-session"));
+	assert.ok(!args.includes("--continue"), "--continue conflicts with --session-id in pi");
+	assert.ok(!args.includes("--append-system-prompt"), "system prompt is already in the session");
+	assert.ok(!args.includes("/tmp/ctx.md"), "context file is already in the session");
+	assert.ok(args.some((a) => typeof a === "string" && /Continue where you left off/i.test(a)), "continue message present");
+	assert.ok(args.some((a) => typeof a === "string" && /429 overloaded/.test(a)), "failure reason carried in the continue message");
+	assert.ok(args.includes("--provider"));
+	assert.ok(args.includes("--exclude-tools"));
 });
 
 test("parseJsonModeOutput: extracts cumulative usage and reconstructs text from pi JSON events", () => {
@@ -326,6 +351,29 @@ test("runPersonaWithRetry: retries a transient failure then succeeds", async () 
 	const ledger = await readLedger(dir);
 	assert.equal(ledger.length, 1);
 	assert.equal(ledger[0].status, "ok");
+});
+
+test("runPersonaWithRetry: retry CONTINUES the same session instead of restarting", async () => {
+	const dir = await makeWorkspace();
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	const seenArgs = [];
+	const execute = async (args) => {
+		seenArgs.push(args);
+		if (seenArgs.length === 1) return { exitCode: 1, stdout: "", stderr: "429 overloaded" };
+		return { exitCode: 0, stdout: "done", stderr: "" };
+	};
+	const res = await runPersonaWithRetry(baseOpts(dir, execute));
+	assert.equal(res.ok, true);
+	assert.equal(seenArgs.length, 2);
+	// First attempt: full prompt with context file + system prompt.
+	assert.ok(seenArgs[0].includes(join(dir, "ctx.md")));
+	assert.ok(seenArgs[0].includes("--append-system-prompt"));
+	// Retry: same session id, short continue message, no context re-send.
+	assert.ok(seenArgs[1].includes("--session-id"));
+	assert.equal(seenArgs[1][seenArgs[1].indexOf("--session-id") + 1], "engineer-test-1");
+	assert.ok(!seenArgs[1].includes("--append-system-prompt"));
+	assert.ok(!seenArgs[1].includes(join(dir, "ctx.md")));
+	assert.ok(seenArgs[1].some((a) => typeof a === "string" && /Continue where you left off/i.test(a)));
 });
 
 test("runPersonaWithRetry: retries a hung/stalled persona (timeout shape) then succeeds", async () => {

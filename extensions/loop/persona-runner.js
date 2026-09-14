@@ -4,17 +4,24 @@
  * Launches a fresh Pi persona session to perform one unit of work. Each
  * invocation is a brand-new child process with:
  *
- *   - a unique run ID (used as the run directory + session name)
- *   - no session persistence (`--no-session`) — personas never remember
- *     prior conversations
+ *   - a unique run ID (used as the run directory + pi session ID)
+ *   - a persistent pi session (`--session-id <runId>`) — retries re-invoke
+ *     with the SAME session ID so pi resumes the conversation (like sending
+ *     "continue" after a mid-run 429) instead of restarting from scratch;
+ *     only a new dispatch (new run ID) starts a new session
  *   - the persona prompt loaded from `personas/{name}.md`
  *   - a minimal context file written to the run dir and passed to the child
  *   - stdout/stderr captured into the run dir
  *
  * The `pi` CLI does not expose a dedicated `--fresh/--persona/--run-id` flag
- * bundle, so we emulate it with the standard flags: `pi -p --no-session
+ * bundle, so we emulate it with the standard flags: `pi -p
  * --session-id <runId> --append-system-prompt <persona> --name <runId>
  * @<context> "<task>"`.
+ *
+ * NOTE: `--session-id` must NOT be combined with `--continue` — pi hard-errors
+ * on that combination. Resuming is done by re-invoking with the SAME
+ * `--session-id` plus a short "continue" message (see
+ * `buildContinuePersonaArgs`); pi opens the existing session automatically.
  *
  * Plain JS on purpose — imported via jiti by the extension and directly by
  * tests / node scripts.
@@ -81,13 +88,14 @@ export function resolvePiModelSync(opts = {}) {
  * to the first attempt (config.pi.maxRetries).
  *
  * NOTE — retry asymmetry is intentional: persona retries are FEW and SLOW
- * (5 retries, 5s base, 120s cap) because each attempt spawns a full LLM session
+ * (5 retries, 5s base, 120s cap) because each attempt is a full LLM session
  * (tens of seconds, real token cost — providers may charge even for timed-out
  * requests), while `gh` API retries in `skills/github/core.js`
  * are MANY and FAST (3 retries, 1s base) because API calls are cheap and
  * sub-second. Do not "align" these without accounting for the cost difference.
- * Each retry is a FRESH `pi --no-session` invocation, not a resumed
- * conversation: on-disk work survives, in-context progress does not.
+ * Each retry CONTINUES the same pi session (`--session-id <runId>`): on-disk
+ * work plus in-context progress survive, like sending "continue" after a
+ * mid-run 429. Only a new dispatch (new run ID) starts a new session.
  */
 export const DEFAULT_PERSONA_MAX_RETRIES = 5;
 
@@ -322,12 +330,13 @@ export async function prepareRun(workspace, runId, payload) {
 /**
  * Launch a fresh Pi persona session (plan.md §14 / §29.3).
  *
- * Uses `pi -p` (non-interactive print mode) with `--no-session` and an explicit
- * `--mode text` so the persona has no memory of any prior conversation and never
- * blocks reading an open stdin (a plain `-p` without `--mode` can hang when the
- * spawned process inherits a controlling terminal / open stdin). The persona
- * prompt is appended to the system prompt and the context file is passed as a
- * file argument.
+ * Uses `pi -p` (non-interactive print mode) with a persistent `--session-id`
+ * and an explicit `--mode json` so retries can resume the same conversation
+ * (see `runPersonaWithRetry`) and the run never blocks reading an open stdin
+ * (a plain `-p` without `--mode` can hang when the spawned process inherits a
+ * controlling terminal / open stdin). The persona prompt is appended to the
+ * system prompt and the context file is passed as a file argument. Each run
+ * ID starts a new session; only retries share one.
  *
  * @param {object} opts
  * @param {string} opts.workspace    absolute project root
@@ -379,7 +388,10 @@ export async function runPersona({
 
 /**
  * Build the `pi` CLI argument list for a persona run (shared by `runPersona`
- * and `runPersonaWithRetry`).
+ * and the first attempt of `runPersonaWithRetry`).
+ *
+ * The run ID doubles as the pi session ID: pi creates the session on first
+ * use, so a later invocation with the same `--session-id` resumes it.
  *
  * @param {object} p { persona, runId, contextFile, task?, config?, env? }
  * @returns {string[]}
@@ -390,7 +402,7 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config, en
 
 	const args = [
 		"-p",
-		"--no-session",
+		"--session-id", runId,
 		"--mode", "json",
 		// Never auto-fetch URLs: the context files contain live links (repo/demo/
 		// changelog URLs) and pi's model can decide to `browse`/fetch them, which
@@ -422,6 +434,51 @@ export function buildPersonaArgs({ persona, runId, contextFile, task, config, en
 	// checkCycleBudget/budgetExceeded), so we drop the unsupported per-persona
 	// flags entirely rather than breaking persona runs.
 	// (personaTokenFlags() intentionally NOT applied — pi rejects these flags.)
+
+	return args;
+}
+
+/**
+ * Build the `pi` CLI argument list for a RETRY of a persona run.
+ *
+ * Resumes the SAME pi session by reusing `--session-id <runId>` (pi opens the
+ * existing session automatically — `--continue` must NOT be passed alongside
+ * `--session-id`, pi hard-errors on that combination). Only a short
+ * "continue" message is sent: the system prompt, context file, and task are
+ * already in the session, so re-sending them would duplicate context and
+ * defeat the purpose of continuing.
+ *
+ * This is the "continue" to the first attempt's prompt: when the provider
+ * 429s/timeouts mid-run, the persona picks up from its last completed step
+ * instead of redoing everything from scratch.
+ *
+ * @param {object} p { runId, persona?, attempt?, reason?, config?, env? }
+ * @returns {string[]}
+ */
+export function buildContinuePersonaArgs({ runId, persona, attempt, reason, config, env }) {
+	const cleanReason = String(reason || "transient provider error").slice(0, 200);
+	const attemptText = Number.isFinite(Number(attempt)) ? ` (continue attempt ${attempt})` : "";
+	const message = [
+		`Continue where you left off${attemptText}.`,
+		`Your previous response was interrupted by a transient provider error: ${cleanReason}.`,
+		`Check the current repo state (git status/diff) and carry on from your last completed step.`,
+		`Do not restart work that is already on disk.`,
+	].join(" ");
+
+	const args = [
+		"-p",
+		"--session-id", runId,
+		"--mode", "json",
+		// Same web-fetch guard as the first attempt: a resumed persona must
+		// not hang on an arbitrary network fetch either.
+		"--exclude-tools", "browse,fetch,web_fetch,get_webpage,get_web_content",
+		"--name", runId,
+		message,
+	];
+
+	const { provider, model } = resolvePiModelSync({ config, env: env || process.env });
+	if (provider) args.push("--provider", provider);
+	if (model) args.push("--model", model);
 
 	return args;
 }
@@ -855,17 +912,23 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 }
 
 /**
- * Run a fresh Pi persona session with retry/backoff around the underlying LLM
+ * Run a Pi persona session with retry/backoff around the underlying LLM
  * invocation (M13 hardening for unstable providers).
  *
- * This is the loop's entry point for launching a persona. It wraps `runPersona`
- * so a transient failure of a single LLM command (network blip, 5xx, timeout,
- * rate limit, empty output) is retried with exponential backoff + jitter
- * instead of burning a whole loop cycle. Non-transient failures (e.g. bad
- * config, auth rejection) fail fast without retrying.
+ * This is the loop's entry point for launching a persona. The first attempt
+ * starts a new pi session (`--session-id <runId>`); each retry CONTINUES
+ * that same session with a short "continue" message instead of restarting
+ * from scratch — like sending "continue" after a mid-run 429 in a chat.
+ * A poisoned session (e.g. "Cannot continue from message role") simply fails
+ * that continue attempt and counts toward the budget; after `maxRetries`
+ * failed continues the run is recorded as failed and the NEXT dispatch
+ * (new run ID) starts a brand-new session.
+ *
+ * Non-transient failures (e.g. bad config, auth rejection) fail fast without
+ * retrying.
  *
  * Retry behaviour is configurable via `config.pi.*`:
- *   - `maxRetries`        (default 5)   retries in addition to the first attempt
+ *   - `maxRetries`        (default 5)   continues in addition to the first attempt
  *   - `retryBaseDelayMs`  (default 5000) base backoff, doubles per retry
  *   - `retryMaxDelayMs`   (default 120000) cap on the backoff delay
  *
@@ -876,7 +939,7 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
  * @param {object} opts  same as `runPersona` (workspace, persona, runId,
  *                       contextFile, task, config, env, execute)
  * @param {Function} [opts.onRetry] `(info) => void` called before each retry with
- *                       { attempt, reason, delayMs }
+ *                       { attempt, reason, delayMs, continued }
  * @returns {Promise<object>} the `runPersona` result, plus `retries` (number of
  *                       retries performed) and `retryable` (whether the last
  *                       failure was considered retryable).
@@ -900,7 +963,7 @@ export async function runPersonaWithRetry(opts = {}) {
 	const runDir = join(workspace, RUNS_DIR_REL, runId);
 	await mkdir(runDir, { recursive: true });
 
-	const args = buildPersonaArgs({ persona, runId, contextFile, task, config, env });
+	const firstArgs = buildPersonaArgs({ persona, runId, contextFile, task, config, env });
 	const childEnv = buildChildEnv({ config, env });
 
 	let retries = 0;
@@ -908,6 +971,19 @@ export async function runPersonaWithRetry(opts = {}) {
 	let lastRetryable = false;
 
 	while (true) {
+		// Attempt 0 starts the session; attempts 1..N continue it via the
+		// same --session-id (pi resumes the existing session automatically).
+		const args = retries === 0
+			? firstArgs
+			: buildContinuePersonaArgs({
+				runId,
+				persona,
+				attempt: retries,
+				reason: (lastRes?.stderr || lastRes?.stdout || "").slice(0, 200)
+					|| (lastRes?.timedOut ? "persona hung; retrying" : "persona invocation failed"),
+				config,
+				env,
+			});
 		const res = await execute(args, childEnv, workspace, execOpts);
 		lastRes = res;
 		if (res.exitCode === 0) break;
@@ -923,6 +999,7 @@ export async function runPersonaWithRetry(opts = {}) {
 			attempt: retries + 1,
 			reason,
 			delayMs,
+			continued: true,
 		});
 		// Record the retry as an LLM-health event so the UI can surface provider
 		// instability (retry frequency, failure reasons) over time.
@@ -936,6 +1013,7 @@ export async function runPersonaWithRetry(opts = {}) {
 				retryable,
 				exitCode: res.exitCode,
 				reason,
+				continued: true,
 			},
 		}, config).catch((err) => warnSuppressed("persona.retry-event", err));
 		await appendHealth(workspace, {

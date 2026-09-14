@@ -31,7 +31,7 @@ import { execa } from "execa";
  * NOTE — retry asymmetry is intentional: `gh` API retries are MANY and FAST
  * (3 retries, 1s base) because API calls are cheap and sub-second, while
  * persona (LLM) retries in `extensions/loop/persona-runner.js` are FEW and
- * SLOW (5 retries, 5s base, 120s cap) because each attempt spawns a full LLM session
+ * SLOW (5 retries, 5s base, 120s cap) because each attempt continues a full LLM session
  * with real token cost. Do not "align" these without accounting for the cost
  * difference.
  */
