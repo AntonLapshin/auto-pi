@@ -310,21 +310,26 @@ async function buildEspStatus(active) {
 	persona = (persona || "-").slice(0, 24);
 
 	// Traffic-light logic (binary per v3 UI: GREEN = loop doing work, else RED).
-	// Green requires loop on, last run not an error, and either a persona
-	// actively running (work in progress — long sessions are normal) or fresh
-	// finished activity (<=15 min).
+	// Green requires loop on, no stop requested, last run not an error, and
+	// either a persona actively running (work in progress — long sessions are
+	// normal) or fresh finished activity (<=15 min). A present stop file
+	// (/loop-stop) means the loop is stopped/stopping, so force RED (and
+	// report loop:false) even while the old PID still holds the lock until
+	// its current cycle exits.
 	const activeP = Boolean(
 		lastRun && (lastRun.status === "started" || lastRun.status === "running"),
 	);
 	let status = "red";
 	const lastFailed = lastRun && (lastRun.status === "error" || lastRun.action === "error");
-	if (loop.running && !lastFailed && (activeP || (ago_s >= 0 && ago_s <= 900))) {
+	const stopped = Boolean(loop.stopFilePresent);
+	const effectiveRunning = Boolean(loop.running && !stopped);
+	if (!stopped && loop.running && !lastFailed && (activeP || (ago_s >= 0 && ago_s <= 900))) {
 		status = "green";
 	}
 	return {
 		ok: true,
 		proj: String(active.projectName || "").slice(0, 24),
-		loop: Boolean(loop.running),
+		loop: effectiveRunning,
 		status,
 		provider,
 		succ,
