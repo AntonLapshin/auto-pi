@@ -25,8 +25,10 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v7: proj/loop,
- *                     green-red dot, provider, model, last-10 ok_n/fail_n gauge, persona)
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v8: proj/loop,
+ *                     green-red dot, state/stuck, model, last-10 ok_n/fail_n
+ *                     gauge (legacy), persona, run_id/run_ok_n progress,
+ *                     act/act_t/act_ago_s last meaningful action)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -267,31 +269,105 @@ async function readLatestSummary(workspace) {
 	}
 }
 
+/** GitHub-visible progress events: the only thing that counts as a
+ * "meaningful action" for the pocket monitor. Heartbeats (`persona.spawned`,
+ * `loop.dispatch`, `llm.retry`, `git.status/log/diff`) are excluded on
+ * purpose — green must mean GitHub side-effects, not LLM chatter. */
+export const MEANINGFUL_EVENT_TYPES = new Set([
+	"issue.created",
+	"issue.closed",
+	"issue.edited",
+	"pr.created",
+	"pr.merged",
+	"pr.approved",
+	"pr.changes_requested",
+	"pr.reviewed",
+	"pr.commented",
+	"pr.ready",
+	"pr.closed",
+	"labels.assigned",
+	"git.push",
+	"git.commit",
+	"git.merge",
+]);
+
+/** True when the event is a GitHub-visible meaningful action. */
+export function isMeaningfulEvent(e) {
+	return Boolean(e && MEANINGFUL_EVENT_TYPES.has(e.type));
+}
+
+/** Extract the first standalone number (issue/PR number) from a command. */
+function extractNumber(cmd) {
+	const m = String(cmd || "").match(/(?:issue|pr)\s+\S+\s+#?(\d{1,6})/i)
+		|| String(cmd || "").match(/\s#(\d{1,6})\b/)
+		|| String(cmd || "").match(/\s(\d{1,6})\s*$/);
+	return m ? m[1] : "";
+}
+
+/** Short human label for the ESP32 (<=40 chars): "merged PR #12", "filed ticket", ... */
+export function humanizeMeaningfulEvent(e) {
+	const type = String(e?.type || "");
+	const cmd = String(e?.data?.command || "");
+	const n = extractNumber(cmd);
+	switch (type) {
+		case "issue.created": return n ? `filed ticket #${n}` : "filed ticket";
+		case "issue.closed": return n ? `closed #${n}` : "closed ticket";
+		case "issue.edited": return n ? `edited #${n}` : "edited ticket";
+		case "pr.created": return n ? `opened PR #${n}` : "opened PR";
+		case "pr.merged": return n ? `merged PR #${n}` : "merged PR";
+		case "pr.approved": return n ? `approved PR #${n}` : "approved PR";
+		case "pr.changes_requested": return n ? `review #${n}: changes` : "review: changes";
+		case "pr.reviewed": return n ? `reviewed PR #${n}` : "reviewed PR";
+		case "pr.commented": return n ? `commented PR #${n}` : "commented PR";
+		case "pr.ready": return n ? `PR #${n} ready` : "PR ready";
+		case "pr.closed": return n ? `closed PR #${n}` : "closed PR";
+		case "labels.assigned": return n ? `labeled #${n}` : "labeled";
+		case "git.push": {
+			const parts = cmd.trim().split(/\s+/);
+			let branch = parts[parts.length - 1] || "";
+			if (!branch || branch.startsWith("-") || branch.includes("origin") && parts.length < 4) branch = "";
+			// `git push origin <branch>` -> last token is the branch.
+			if (parts.length >= 4 && parts[0] === "git" && parts[1] === "push") {
+				branch = parts[parts.length - 1].startsWith("-") ? "" : parts[parts.length - 1];
+				if (branch === "origin" || branch === "--force" || branch === "-f") branch = "";
+			}
+			return (branch ? `pushed ${branch}` : "pushed").slice(0, 40);
+		}
+		case "git.commit": return "committed";
+		case "git.merge": return "merged branch";
+		default: return type.slice(0, 40) || "did something";
+	}
+}
+
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v7 layout contract (170x320 portrait):
+ * v8 layout contract (170x320 portrait):
  *   Project (Loop)  -> `proj`, `loop`
- *   GREEN/RED pulsating dot -> `status` ("green" | "red", decided server-side)
- *   Provider        -> `provider` (effective pi provider)
- *   Model           -> `model` (effective pi model, e.g. DeepSeek-V4-Flash-0731)
- *   GAUGE           -> `ok_n` / `fail_n` LLM calls, windowed server-side to the
- *                      last 10 health.jsonl records (`ok_n + fail_n <= 10`,
- *                      fewer when less than 10 calls exist). The ESP32 renders
- *                      its gauge as `ok_n / (ok_n + fail_n)` with no
- *                      client-side reconstruction.
- *   Persona         -> `persona` (pm | engineer | review-engineer | qa | ...)
- * Legacy fields (`last`, `tok_today`, `err`) are kept so older firmware keeps
- * working during the transition. `succ`/`total` were removed in v7 (they
- * duplicated the same last-10 LLM-call window); `ok_n`/`fail_n` now carry the
- * LLM-call outcome directly. */
-async function buildEspStatus(active) {
+ *   GREEN/RED dot   -> `status` ("green" | "red", decided server-side)
+ *   Model           -> `model` (effective pi model; `provider` removed in v8
+ *                      to save space — see /api/status for provider detail)
+ *   GAUGE (legacy)  -> `ok_n` / `fail_n` LLM calls over the last 10
+ *                      health.jsonl records (kept so old firmware keeps working;
+ *                      new firmware should use `run_ok_n` progress instead)
+ *   Persona         -> `persona` (pm | engineer | review-engineer | ...)
+ *   Last meaningful -> `act` (e.g. "merged PR #12"), `act_t` (event type),
+ *                      `act_ago_s` (seconds since it happened, -1 when none)
+ *   Progress        -> `run_ok_n` meaningful actions in the current/last run
+ *                      (`run_id`); render as `ENGINEER:{run_ok_n}`
+ *   Liveness        -> `state` (active|idle|waiting|stopped|stuck|error),
+ *                      `stuck` bool (active record older than
+ *                      loop.personaTimeoutMs / personaInactivityMs, or active
+ *                      while the loop is dead)
+ * Legacy fields (`ago_s`, `last`, `tok_today`, `err`) are kept so older
+ * firmware keeps working during the transition. */
+export async function buildEspStatus(active) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
 	const [runs, events, errors, usage, health] = await Promise.all([
 		readRuns(workspace),
-		readEvents(workspace, { limit: 5 }),
+		readEvents(workspace, { limit: 200 }),
 		readErrors(workspace),
 		readUsage(workspace),
-		readHealth(workspace, { limit: 1000 }),
+		readHealth(workspace, { limit: 100 }),
 	]);
 	const loop = await loopState(workspace);
 	const now = Date.now();
@@ -301,52 +377,17 @@ async function buildEspStatus(active) {
 	const lastMs = Date.parse(lastAtRaw || "");
 	const ago_s = Number.isFinite(lastMs) ? Math.max(0, Math.floor((now - lastMs) / 1000)) : -1;
 	const today = new Date().toISOString().slice(0, 10);
-	// GAUGE: ok_n / fail_n over the last 10 LLM calls (health.jsonl is
-	// most-recent-first, so head it). Capped: ok_n + fail_n <= 10, fewer
-	// when less than 10 calls exist. The ESP32 renders the gauge as
-	// ok_n / (ok_n + fail_n).
+	// GAUGE (legacy): ok_n / fail_n over the last 10 LLM calls
+	// (health.jsonl is most-recent-first, so head it).
 	const win = health.slice(0, 10);
 	const ok_n = win.filter((h) => h.ok).length;
 	const fail_n = win.length - ok_n;
 	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
 	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
 
-	// Provider: effective resolution (config -> PI_* env -> pi settings), then
-	// fall back to the most recent non-empty provider in health.jsonl (older
-	// records were written with config-only resolution and may be empty), then
-	// infer from pi's authenticated providers (auth.json holds keys per
-	// provider — we expose only the name, never the key), then GONKA env hint.
-	let provider = String(resolveProviderModel({ config }).provider || "").slice(0, 24);
-	if (!provider) {
-		// readHealth() returns most-recent-first, so index 0 is the newest.
-		for (let i = 0; i < health.length; i += 1) {
-			const p = String(health[i]?.provider || "").trim();
-			if (p) { provider = p.slice(0, 24); break; }
-		}
-	}
-	if (!provider) {
-		try {
-			const auth = JSON.parse(
-				await readFile(join(homedir(), ".pi", "agent", "auth.json"), "utf8"),
-			);
-			const names = Object.keys(auth || {}).filter((k) => auth[k]);
-			if (names.length) provider = String(names[0]).slice(0, 24);
-		} catch {
-			// best-effort — display falls back to "-" below
-		}
-	}
-	if (!provider && (process.env.GONKAAPI_API_KEY || process.env.JOINGONKA_API_KEY)) {
-		provider = process.env.JOINGONKA_API_KEY ? "joingonka" : "gonkaapi";
-	}
-	if (!provider) {
-		const hay = String(health.length ? (health[0]?.reason || "") : "");
-		if (/gonka/i.test(hay)) provider = "gonkaapi";
-	}
-	provider = provider || "-";
-
-	// Model: same effective resolution as the provider (config -> PI_* env ->
-	// pi settings), then the most recent non-empty model in health.jsonl.
-	// Truncated for the tiny display; "-" when unknown.
+	// Model: effective resolution (config -> PI_* env -> pi settings), then
+	// the most recent non-empty model in health.jsonl. Truncated for the tiny
+	// display; "-" when unknown.
 	let model = String(resolveProviderModel({ config }).model || "").slice(0, 48);
 	if (!model) {
 		for (let i = 0; i < health.length; i += 1) {
@@ -364,21 +405,84 @@ async function buildEspStatus(active) {
 	}
 	persona = (persona || "-").slice(0, 24);
 
-	// Traffic-light logic (binary per v3 UI: GREEN = loop doing work, else RED).
-	// Green requires loop on, no stop requested, last run not an error, and
-	// either a persona actively running (work in progress — long sessions are
-	// normal) or fresh finished activity (<=15 min). A present stop file
-	// (/loop-stop) means the loop is stopped/stopping, so force RED (and
-	// report loop:false) even while the old PID still holds the lock until
-	// its current cycle exits.
+	// Last meaningful action: newest HIGH event (most-recent-first scan).
+	// `run_ok_n` counts HIGH events sharing the current/last runId, so
+	// ENGINEER:{run_ok_n} grows live while the persona works.
+	let act = "-";
+	let act_t = "";
+	let act_ago_s = -1;
+	const run_id = String(lastRun?.runId || "");
+	let run_ok_n = 0;
+	for (const e of events) {
+		if (!isMeaningfulEvent(e)) continue;
+		if (!act_t) {
+			act_t = String(e.type || "");
+			act = humanizeMeaningfulEvent(e).slice(0, 40);
+			const ms = Date.parse(e.at || "");
+			act_ago_s = Number.isFinite(ms) ? Math.max(0, Math.floor((now - ms) / 1000)) : -1;
+		}
+		if (run_id && String(e.runId || "") === run_id) run_ok_n += 1;
+		if (act_t && (!run_id || String(e.runId || "") !== run_id)) {
+			// act found; keep scanning only when we still need run counts.
+			// Runs are contiguous in the ledger, so break once we leave the
+			// current runId after having counted at least one run event...
+			// (simpler: keep scanning — limit is 200, cheap).
+		}
+	}
+	// Runs ledger has no runId on waiting/stopped markers — run_ok_n stays 0 there.
+
+	// Liveness: stuck vs active vs idle, driven by loop config
+	// (loop.personaInactivityMs / personaTimeoutMs, defaults mirror
+	// config/config.default.json so a missing config still behaves).
+	const inactivityMs = Number(config?.loop?.personaInactivityMs) > 0
+		? Number(config.loop.personaInactivityMs) : 600000;
+	const timeoutMs = Number(config?.loop?.personaTimeoutMs) > 0
+		? Number(config.loop.personaTimeoutMs) : 3600000;
 	const activeP = Boolean(
 		lastRun && (lastRun.status === "started" || lastRun.status === "running"),
 	);
-	let status = "red";
-	const lastFailed = lastRun && (lastRun.status === "error" || lastRun.action === "error");
+	const lastFailed = Boolean(lastRun && (lastRun.status === "error" || lastRun.action === "error"));
 	const stopped = Boolean(loop.stopFilePresent);
 	const effectiveRunning = Boolean(loop.running && !stopped);
-	if (!stopped && loop.running && !lastFailed && (activeP || (ago_s >= 0 && ago_s <= 900))) {
+	let stuck = false;
+	if (activeP) {
+		const startedMs = Date.parse(lastRun?.startedAt || "");
+		if (!loop.running) {
+			stuck = true; // persona marked active but the loop is dead
+		} else if (Number.isFinite(startedMs) && now - startedMs > timeoutMs) {
+			stuck = true; // exceeded the wall-clock cap
+		} else {
+			const newestEventMs = Date.parse(events[0]?.at || "");
+			const lastActivityMs = Math.max(
+				Number.isFinite(startedMs) ? startedMs : NaN,
+				Number.isFinite(newestEventMs) ? newestEventMs : NaN,
+			);
+			if (Number.isFinite(lastActivityMs) && now - lastActivityMs > inactivityMs) {
+				stuck = true; // silent longer than the inactivity watchdog
+			}
+		}
+	}
+
+	let state = "idle";
+	if (stopped) state = "stopped";
+	else if (!loop.running && lastFailed) state = "error";
+	else if (!loop.running && activeP) state = "stuck";
+	else if (!loop.running) state = "idle";
+	else if (lastFailed) state = "error";
+	else if (stuck) state = "stuck";
+	else if (activeP) state = "active";
+	else if (lastRun?.action === "waiting" || lastRun?.status === "waiting") state = "waiting";
+	else if (lastRun?.action === "stopped" || lastRun?.status === "stopped") state = "stopped";
+	else state = "idle";
+
+	// Traffic-light: GREEN = loop doing GitHub-visible work (or actively
+	// working on it), else RED. Green requires loop on, no stop, no error,
+	// not stuck, and either a fresh active persona (long sessions are normal)
+	// or a recent meaningful action (<=15 min). A present stop file forces
+	// RED (and loop:false) even while the old PID still holds the lock.
+	let status = "red";
+	const actRecent = act_ago_s >= 0 && act_ago_s <= 900;
+	if (!stopped && loop.running && !lastFailed && !stuck && (activeP || actRecent)) {
 		status = "green";
 	}
 	return {
@@ -386,11 +490,17 @@ async function buildEspStatus(active) {
 		proj: String(active.projectName || "").slice(0, 24),
 		loop: effectiveRunning,
 		status,
-		provider,
+		state,
+		stuck,
 		model,
 		ok_n,
 		fail_n,
 		persona,
+		run_id: run_id.slice(0, 64),
+		run_ok_n,
+		act,
+		act_t,
+		act_ago_s,
 		ago_s,
 		last,
 		tok_today,

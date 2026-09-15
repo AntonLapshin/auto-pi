@@ -80,7 +80,7 @@ node ui/server/server.js   # serves /api/* (static serving optional)
 | `GET /api/usage`     | Token usage per day / per cycle |
 | `GET /api/errors`    | Recent errors (`?limit=N`) |
 | `GET /api/summary`   | Latest machine-readable execution summary |
-| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload (proj/loop, green/red dot, provider, model, last-10 ok_n/fail_n gauge, persona) |
+| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload v8 (proj/loop, green/red dot + state/stuck, model, persona, run_id/run_ok_n progress, act/act_t/act_ago_s last meaningful action; legacy last-10 ok_n/fail_n LLM gauge kept for compat, `provider` removed) |
 | `GET /api/healthz`   | Liveness |
 
 All endpoints are read-only and intended for local use.
@@ -116,10 +116,33 @@ must both be true, or the request refuses/times out:
    curl http://192.168.7.131:8787/api/esp-status
    ```
 
-   `curl http://192.168.7.131/api/esp-status` (no port, i.e. implicit port 80)
-   will always fail — nothing listens on port 80. Locally that surfaces as
-   `Connection refused`; from another host it typically just hangs until it
-   times out (SYN dropped by firewall/no listener).
+    `curl http://192.168.7.131/api/esp-status` (no port, i.e. implicit port 80)
+    will always fail — nothing listens on port 80. Locally that surfaces as
+    `Connection refused`; from another host it typically just hangs until it
+    times out (SYN dropped by firewall/no listener).
+
+### ESP32 v8 payload (meaningful progress)
+
+`provider` was removed to save space — see `/api/status` for provider detail.
+Render progress from the new fields:
+
+```
+ENGINEER:{run_ok_n}   e.g. ENGINEER:3
+{act_ago_s → "5m ago"}  e.g. 5m ago
+{act}                 e.g. merged PR #12
+```
+
+* `act / act_t / act_ago_s` — last GitHub-visible action (issue/PR create,
+  review, merge, push/commit), not the loop heartbeat. `-` / `-1` when none yet.
+* `run_ok_n` — meaningful actions sharing the current/last `run_id`. `0`
+  means the persona ran but landed nothing on GitHub.
+* `state` — `active|idle|waiting|stopped|stuck|error`; `stuck=true` when the
+  active persona record is older than `loop.personaTimeoutMs` (default 1h) or
+  silent longer than `loop.personaInactivityMs` (default 10m), or active while
+  the loop is dead.
+* `status` stays binary (`green`/`red`): green only with the loop running, no
+  stop file, no error, not stuck, and either an active persona or a meaningful
+  action within 15 min.
 
 ## Data source
 
