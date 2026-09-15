@@ -17,8 +17,8 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v4: proj/loop,
- *                     green-red dot, provider, model, succ/total gauge, persona)
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v5: proj/loop,
+ *                     green-red dot, provider, model, last-10 succ/total gauge, persona)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -232,15 +232,20 @@ async function readLatestSummary(workspace) {
 }
 
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v4 layout contract (170x320 portrait):
+ * v5 layout contract (170x320 portrait):
  *   Project (Loop)  -> `proj`, `loop`
  *   GREEN/RED pulsating dot -> `status` ("green" | "red", decided server-side)
  *   Provider        -> `provider` (effective pi provider)
  *   Model           -> `model` (effective pi model, e.g. DeepSeek-V4-Flash-0731)
- *   GAUGE           -> `succ` / `total` LLM calls (from health.jsonl)
+ *   GAUGE           -> `succ` / `total` LLM calls, windowed server-side to the
+ *                      last 10 health.jsonl records (`total` capped at 10)
  *   Persona         -> `persona` (pm | engineer | review-engineer | qa | ...)
  * Legacy fields (`last`, `runs`, `ok_n`, `fail_n`, `tok_today`, `err`) are kept
- * so older firmware keeps working during the transition. */
+ * so older firmware keeps working during the transition. `runs` / `ok_n` /
+ * `fail_n` are windowed the same way: the last 10 run records (`runs` capped
+ * at 10, `ok_n`/`fail_n` counted within that window). The ESP32 renders its
+ * gauge directly from `succ`/`total` (resp. `ok_n`/`fail_n`/`total`) without
+ * any client-side delta reconstruction. */
 async function buildEspStatus(active) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
@@ -259,9 +264,12 @@ async function buildEspStatus(active) {
 	const lastMs = Date.parse(lastAtRaw || "");
 	const ago_s = Number.isFinite(lastMs) ? Math.max(0, Math.floor((now - lastMs) / 1000)) : -1;
 	const today = new Date().toISOString().slice(0, 10);
-	const runsToday = runs.filter((r) => String(r.startedAt || "").slice(0, 10) === today);
-	const ok_n = runsToday.filter((r) => r.status === "ok" || r.action === "ran").length;
-	const fail_n = runsToday.filter((r) => r.status === "error" || r.action === "error").length;
+	// Last-10 run window (runs.jsonl is oldest-first, so tail it). `runs` is
+	// capped at 10; `ok_n`/`fail_n` count ok/fail outcomes within that window.
+	// The ESP32 only respects the last 10, so the server windows it here.
+	const recentRuns = runs.slice(-10);
+	const ok_n = recentRuns.filter((r) => r.status === "ok" || r.action === "ran").length;
+	const fail_n = recentRuns.filter((r) => r.status === "error" || r.action === "error").length;
 	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
 	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
 
@@ -272,7 +280,8 @@ async function buildEspStatus(active) {
 	// provider — we expose only the name, never the key), then GONKA env hint.
 	let provider = String(resolveProviderModel({ config }).provider || "").slice(0, 24);
 	if (!provider) {
-		for (let i = health.length - 1; i >= 0; i -= 1) {
+		// readHealth() returns most-recent-first, so index 0 is the newest.
+		for (let i = 0; i < health.length; i += 1) {
 			const p = String(health[i]?.provider || "").trim();
 			if (p) { provider = p.slice(0, 24); break; }
 		}
@@ -292,7 +301,7 @@ async function buildEspStatus(active) {
 		provider = process.env.JOINGONKA_API_KEY ? "joingonka" : "gonkaapi";
 	}
 	if (!provider) {
-		const hay = String(health.length ? (health[health.length - 1]?.reason || "") : "");
+		const hay = String(health.length ? (health[0]?.reason || "") : "");
 		if (/gonka/i.test(hay)) provider = "gonkaapi";
 	}
 	provider = provider || "-";
@@ -302,17 +311,20 @@ async function buildEspStatus(active) {
 	// Truncated for the tiny display; "-" when unknown.
 	let model = String(resolveProviderModel({ config }).model || "").slice(0, 48);
 	if (!model) {
-		for (let i = health.length - 1; i >= 0; i -= 1) {
+		for (let i = 0; i < health.length; i += 1) {
 			const m = String(health[i]?.model || "").trim();
 			if (m) { model = m.slice(0, 48); break; }
 		}
 	}
 	model = model || "-";
 
-	// GAUGE: success / total LLM calls (raw health records = attempts).
+	// GAUGE: success / total over the last 10 LLM calls (health.jsonl is
+	// most-recent-first, so head it). `total` is capped at 10 and the ESP32
+	// renders the gauge directly from these values.
+	const win = health.slice(0, 10);
 	let succ = 0;
-	for (const h of health) if (h.ok) succ += 1;
-	const total = health.length;
+	for (const h of win) if (h.ok) succ += 1;
+	const total = win.length;
 
 	// Persona: active persona first (a started run means that persona is live),
 	// otherwise the last run's persona.
@@ -351,7 +363,7 @@ async function buildEspStatus(active) {
 		persona,
 		ago_s,
 		last,
-		runs: runsToday.length,
+		runs: recentRuns.length,
 		ok_n,
 		fail_n,
 		tok_today,
