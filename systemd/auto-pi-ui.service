@@ -1,0 +1,51 @@
+# auto-pi UI backend — systemd --user service (optional daily driver).
+#
+# The UI backend serves the monitor API, including GET /api/esp-status for the
+# ESP32 pocket monitor. Unlike the autonomous loop (resumed with /loop-resume
+# after a reboot), this service is NOT started automatically — after a machine
+# restart you must start it (or enable it) or every /api/* request refuses /
+# times out.
+#
+# Install (per-user, autostarts on login):
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp systemd/auto-pi-ui.service ~/.config/systemd/user/
+#   # Edit paths below (WorkingDirectory) if your checkout lives elsewhere.
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now auto-pi-ui.service
+#
+# Check status / logs:
+#
+#   systemctl --user status auto-pi-ui
+#   journalctl --user -u auto-pi-ui -f
+#
+# Health probes:
+#
+#   curl http://127.0.0.1:8787/api/healthz
+#   curl http://127.0.0.1:8787/api/esp-status
+#
+# LAN / ESP32 polling (same Wi-Fi):
+#
+#   curl http://192.168.7.131:8787/api/esp-status
+#
+# NOTE the `:8787` port — `http://<lan-ip>/api/esp-status` (implicit port 80)
+# will refuse/time out because nothing listens on port 80.
+#
+# The default bind below is loopback-only (127.0.0.1). For ESP32 LAN polling,
+# set Environment=AUTOPI_UI_HOST=0.0.0.0 (or add `--host 0.0.0.0` to ExecStart).
+
+[Unit]
+Description=auto-pi UI backend API (monitor + esp-status, port 8787)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/mise/shims/node %h/ws/auto-pi/ui/server/server.js
+WorkingDirectory=%h/ws/auto-pi
+Environment=AUTOPI_UI_PORT=8787
+Environment=AUTOPI_UI_HOST=127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

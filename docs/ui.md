@@ -51,6 +51,8 @@ Then start two processes:
 # 1. Backend API on http://localhost:8787
 npm run ui:server
 #    or: node ui/server/server.js
+#    or: node ui/server/server.js --port 8787 --host 127.0.0.1
+#    (env overrides: AUTOPI_UI_PORT / AUTOPI_UI_HOST; flags win over env)
 
 # 2. Vite dev server on http://localhost:5173 (proxies /api → 8787)
 npm run ui:dev
@@ -78,9 +80,46 @@ node ui/server/server.js   # serves /api/* (static serving optional)
 | `GET /api/usage`     | Token usage per day / per cycle |
 | `GET /api/errors`    | Recent errors (`?limit=N`) |
 | `GET /api/summary`   | Latest machine-readable execution summary |
+| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload (proj/loop, green/red dot, provider, model, last-10 succ/total gauge, persona) |
 | `GET /api/healthz`   | Liveness |
 
 All endpoints are read-only and intended for local use.
+
+## ESP32 / LAN polling
+
+The ESP32 pocket monitor polls `GET /api/esp-status` over the LAN. Two things
+must both be true, or the request refuses/times out:
+
+1. **The backend must be running.** It does not survive a reboot and
+   `/loop-resume` does not start it — it only resumes the autonomous loop.
+   After a restart, start it again (`npm run ui:server`) or run it as a
+   user service so it autostarts on login:
+
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   cp systemd/auto-pi-ui.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now auto-pi-ui.service
+   ```
+
+2. **Use the right host *and* port.** The backend listens on port **8787**
+   (default host `127.0.0.1`). From another machine on the same Wi-Fi the
+   backend must bind to all interfaces (`--host 0.0.0.0` or
+   `AUTOPI_UI_HOST=0.0.0.0`), and the URL must include `:8787`:
+
+   ```bash
+   # on the dev machine:
+   node ui/server/server.js --host 0.0.0.0
+   curl http://127.0.0.1:8787/api/esp-status
+
+   # from another host on the LAN (example dev-machine IP 192.168.7.131):
+   curl http://192.168.7.131:8787/api/esp-status
+   ```
+
+   `curl http://192.168.7.131/api/esp-status` (no port, i.e. implicit port 80)
+   will always fail — nothing listens on port 80. Locally that surfaces as
+   `Connection refused`; from another host it typically just hangs until it
+   times out (SYN dropped by firewall/no listener).
 
 ## Data source
 

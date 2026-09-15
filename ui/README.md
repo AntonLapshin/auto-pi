@@ -23,6 +23,7 @@ Then start two processes (or use the two terminals below):
 # 1. Backend API on http://localhost:8787
 npm run ui:server
 #    or: node ui/server/server.js
+#    (flags: --port N --host H; env: AUTOPI_UI_PORT / AUTOPI_UI_HOST)
 
 # 2. Vite dev server on http://localhost:5173 (proxies /api → 8787)
 npm run ui:dev
@@ -30,6 +31,12 @@ npm run ui:dev
 ```
 
 Then open **http://localhost:5173**.
+
+> ESP32 / LAN: the backend does not autostart after a reboot (use
+> `systemd/auto-pi-ui.service` for that), it listens on port **8787**, and LAN
+> polling needs `--host 0.0.0.0`, e.g.
+> `curl http://192.168.7.131:8787/api/esp-status` — without `:8787` (port 80)
+> the request refuses/times out. Full guide: [`docs/ui.md`](../docs/ui.md).
 
 For a production-style single server, build the UI and serve the static
 `dist/` alongside the API:

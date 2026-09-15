@@ -78,3 +78,28 @@ use the git-ignored `.pi/local.json` / env vars.
 - `.pi/runs/{runId}/` — per-run context, stdout, stderr
 
 Use `/loop-logs` (or `npm run logs`) to view them.
+
+> `.pi/logs/loop.out` lives under the **active project workspace**
+> (e.g. `~/.auto-pi/workspaces/<owner>/<repo>/repo/.pi/logs/loop.out`), not
+> under the auto-pi harness checkout (`~/ws/auto-pi/.pi/` does not exist).
+> `npm run status` prints the workspace path.
+
+## `curl /api/esp-status` hangs or refuses to connect
+
+`GET /api/esp-status` is served by the UI backend (`node ui/server/server.js`,
+default `http://127.0.0.1:8787`), which is a separate process from the
+autonomous loop:
+
+- **After a reboot the backend is not running.** `/loop-resume` only resumes
+  the loop; it does not start the backend. Restart it with
+  `npm run ui:server` (or install `systemd/auto-pi-ui.service` so it
+  autostarts on login). Verify with
+  `curl http://127.0.0.1:8787/api/healthz`.
+- **Wrong port.** The backend listens on **8787**, not 80.
+  `curl http://192.168.7.131/api/esp-status` targets implicit port 80, where
+  nothing listens — locally `Connection refused`, from another host usually a
+  hang until timeout. Use `curl http://192.168.7.131:8787/api/esp-status`.
+- **Wrong bind address for LAN.** The default host is `127.0.0.1`
+  (loopback-only). For polling from another host/ESP32 on the LAN, run with
+  `--host 0.0.0.0` (or `AUTOPI_UI_HOST=0.0.0.0`). See
+  [ui.md](ui.md#esp32--lan-polling).

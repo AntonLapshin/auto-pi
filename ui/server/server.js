@@ -7,7 +7,15 @@
  * errors.jsonl, usage.jsonl, summary.jsonl) and exposes them as a JSON API for
  * the Vite + React dashboard.
  *
- *   node ui/server/server.js [--port 8787]
+ *   node ui/server/server.js [--port 8787] [--host 127.0.0.1]
+ *
+ * The port/host can also be set via AUTOPI_UI_PORT / AUTOPI_UI_HOST.
+ * CLI flags win over env vars. The server binds to 127.0.0.1 by default
+ * (local use). For LAN polling (e.g. an ESP32 pocket monitor on the same
+ * Wi-Fi), run with `--host 0.0.0.0` (or AUTOPI_UI_HOST=0.0.0.0) and query
+ * `http://<lan-ip>:8787/api/esp-status` — note the `:8787` port. Querying
+ * `http://<lan-ip>/api/esp-status` (implicit port 80) will refuse/time out
+ * because nothing listens on port 80.
  *
  * Endpoints (all read-only, no auth — intended for local use):
  *   GET /api/status   project identity, loop state, active persona, budget
@@ -42,7 +50,35 @@ import { readActiveProject, checkLock } from "../../extensions/loop/orchestrator
 import { resolveProviderModel } from "../../extensions/loop/provider-env.js";
 
 const CURRENT_PROJECT_FILE = join(homedir(), ".auto-pi", "current-project.json");
-const PORT = Number(process.env.AUTOPI_UI_PORT) || 8787;
+
+/**
+ * Parse the UI server bind address from CLI args + env.
+ * CLI flags (`--port N`, `--host H`) win over `AUTOPI_UI_PORT` /
+ * `AUTOPI_UI_HOST`. Defaults: port 8787, host 127.0.0.1.
+ */
+export function parseUiBind(argv = process.argv.slice(2), env = process.env) {
+	let port = Number(env.AUTOPI_UI_PORT) || 8787;
+	let host = env.AUTOPI_UI_HOST || "127.0.0.1";
+	for (let i = 0; i < argv.length; i += 1) {
+		const a = argv[i];
+		if ((a === "--port" || a === "--port=") && argv[i + 1] !== undefined) {
+			const n = Number(argv[i + 1]);
+			if (Number.isFinite(n) && n > 0) port = n;
+			i += 1;
+		} else if (a.startsWith("--port=")) {
+			const n = Number(a.slice("--port=".length));
+			if (Number.isFinite(n) && n > 0) port = n;
+		} else if ((a === "--host") && argv[i + 1] !== undefined) {
+			host = String(argv[i + 1]);
+			i += 1;
+		} else if (a.startsWith("--host=")) {
+			host = String(a.slice("--host=".length));
+		}
+	}
+	return { port, host };
+}
+
+const { port: PORT, host: HOST } = parseUiBind();
 
 /** Resolve the active project workspace (or null). */
 async function resolveActive() {
@@ -483,6 +519,11 @@ const server = createServer(async (req, res) => {
 	}
 });
 
-server.listen(PORT, () => {
-	process.stdout.write(`auto-pi UI backend listening on http://localhost:${PORT}\n`);
-});
+export { server };
+
+const isMain = process.argv[1] && process.argv[1].endsWith("server.js");
+if (isMain) {
+	server.listen(PORT, HOST, () => {
+		process.stdout.write(`auto-pi UI backend listening on http://${HOST}:${PORT}\n`);
+	});
+}

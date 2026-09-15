@@ -175,6 +175,11 @@ structured ledgers the loop writes to the active project's `.pi/logs/`
 (`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
 See [`docs/ui.md`](docs/ui.md) for the full operator guide.
 
+> After a reboot, restart the backend too (`/loop-resume` only resumes the
+> loop). For ESP32/LAN polling use `http://<lan-ip>:8787/api/esp-status` with
+> `--host 0.0.0.0` — port 80 will refuse/time out. See
+> [`docs/ui.md`](docs/ui.md#esp32--lan-polling).
+
 ![auto-pi monitor dashboard](docs/screenshots/monitor.png)
 
 ## Further reading
