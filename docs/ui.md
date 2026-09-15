@@ -80,7 +80,7 @@ node ui/server/server.js   # serves /api/* (static serving optional)
 | `GET /api/usage`     | Token usage per day / per cycle |
 | `GET /api/errors`    | Recent errors (`?limit=N`) |
 | `GET /api/summary`   | Latest machine-readable execution summary |
-| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload (proj/loop, green/red dot, provider, model, last-10 succ/total gauge, persona) |
+| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload (proj/loop, green/red dot, provider, model, last-10 ok_n/fail_n gauge, persona) |
 | `GET /api/healthz`   | Liveness |
 
 All endpoints are read-only and intended for local use.

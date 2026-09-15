@@ -25,8 +25,8 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v5: proj/loop,
- *                     green-red dot, provider, model, last-10 succ/total gauge, persona)
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v7: proj/loop,
+ *                     green-red dot, provider, model, last-10 ok_n/fail_n gauge, persona)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -268,24 +268,21 @@ async function readLatestSummary(workspace) {
 }
 
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v6 layout contract (170x320 portrait):
+ * v7 layout contract (170x320 portrait):
  *   Project (Loop)  -> `proj`, `loop`
  *   GREEN/RED pulsating dot -> `status` ("green" | "red", decided server-side)
  *   Provider        -> `provider` (effective pi provider)
  *   Model           -> `model` (effective pi model, e.g. DeepSeek-V4-Flash-0731)
- *   GAUGE           -> `succ` / `total` LLM calls, windowed server-side to the
- *                      last 10 health.jsonl records (`total` capped at 10)
+ *   GAUGE           -> `ok_n` / `fail_n` LLM calls, windowed server-side to the
+ *                      last 10 health.jsonl records (`ok_n + fail_n <= 10`,
+ *                      fewer when less than 10 calls exist). The ESP32 renders
+ *                      its gauge as `ok_n / (ok_n + fail_n)` with no
+ *                      client-side reconstruction.
  *   Persona         -> `persona` (pm | engineer | review-engineer | qa | ...)
- * `ok_n` / `fail_n` carry the last-10 *finished* persona-run outcomes
- * (filtered to terminal records first, then tailed to 10, so
- * `ok_n + fail_n <= 10` by construction). The ESP32 renders its gauge
- * directly from `succ`/`total` (resp. `ok_n`/`fail_n`) without any
- * client-side delta reconstruction.
  * Legacy fields (`last`, `tok_today`, `err`) are kept so older firmware keeps
- * working during the transition. The `runs` count field was removed in v6:
- * runs.jsonl interleaves "started"/"running" markers with terminal records,
- * so a raw last-10 slice (e.g. runs:10, ok_n:4, fail_n:0) could never satisfy
- * ok_n + fail_n == runs. */
+ * working during the transition. `succ`/`total` were removed in v7 (they
+ * duplicated the same last-10 LLM-call window); `ok_n`/`fail_n` now carry the
+ * LLM-call outcome directly. */
 async function buildEspStatus(active) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
@@ -304,17 +301,13 @@ async function buildEspStatus(active) {
 	const lastMs = Date.parse(lastAtRaw || "");
 	const ago_s = Number.isFinite(lastMs) ? Math.max(0, Math.floor((now - lastMs) / 1000)) : -1;
 	const today = new Date().toISOString().slice(0, 10);
-	// Last-10 *finished* run outcomes. runs.jsonl is oldest-first and
-	// interleaves "started"/"running" markers with terminal records, so a raw
-	// tail slice can contain markers that are neither ok nor fail
-	// (e.g. runs:10, ok_n:4, fail_n:0). Filter to terminal outcomes first,
-	// then tail to 10: ok_n + fail_n <= 10 by construction, fewer when less
-	// than 10 finished runs exist.
-	const isOk = (r) => r.status === "ok" || r.action === "ran";
-	const isFail = (r) => r.status === "error" || r.action === "error";
-	const recentFinished = runs.filter((r) => isOk(r) || isFail(r)).slice(-10);
-	const ok_n = recentFinished.filter(isOk).length;
-	const fail_n = recentFinished.filter(isFail).length;
+	// GAUGE: ok_n / fail_n over the last 10 LLM calls (health.jsonl is
+	// most-recent-first, so head it). Capped: ok_n + fail_n <= 10, fewer
+	// when less than 10 calls exist. The ESP32 renders the gauge as
+	// ok_n / (ok_n + fail_n).
+	const win = health.slice(0, 10);
+	const ok_n = win.filter((h) => h.ok).length;
+	const fail_n = win.length - ok_n;
 	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
 	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
 
@@ -363,14 +356,6 @@ async function buildEspStatus(active) {
 	}
 	model = model || "-";
 
-	// GAUGE: success / total over the last 10 LLM calls (health.jsonl is
-	// most-recent-first, so head it). `total` is capped at 10 and the ESP32
-	// renders the gauge directly from these values.
-	const win = health.slice(0, 10);
-	let succ = 0;
-	for (const h of win) if (h.ok) succ += 1;
-	const total = win.length;
-
 	// Persona: active persona first (a started run means that persona is live),
 	// otherwise the last run's persona.
 	let persona = String(lastRun?.persona || "");
@@ -403,13 +388,11 @@ async function buildEspStatus(active) {
 		status,
 		provider,
 		model,
-		succ,
-		total,
+		ok_n,
+		fail_n,
 		persona,
 		ago_s,
 		last,
-		ok_n,
-		fail_n,
 		tok_today,
 		err: errors.length,
 		at: new Date().toISOString(),
