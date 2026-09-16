@@ -35,10 +35,14 @@ import {
 	USAGE_LOG_REL,
 	EVENTS_LOG_REL,
 	HEALTH_LOG_REL,
+	LLM_LOG_REL,
 	appendEvent,
 	readEvents,
 	appendHealth,
 	readHealth,
+	appendLlmCall,
+	readLlmCalls,
+	extractLlmCalls,
 	parseGitCommands,
 	classifyGitCommand,
 	loggingOptions,
@@ -75,6 +79,24 @@ test("redactSecrets keeps key names but redacts values in assignments", () => {
 test("redactSecrets leaves plain text untouched", () => {
 	const text = "The project scaffolded successfully with 12 files.";
 	assert.equal(redactSecrets(text), text);
+});
+
+test("redactSecrets preserves hyphenated run IDs (review-engineer)", () => {
+	// Compound persona names must survive redaction: the run ID is the pi
+	// session key and the ledger correlation key. Regression: `review-engineer`
+	// run IDs were scrubbed to `[REDACTED]`, breaking run correlation.
+	assert.equal(
+		redactSecrets("run review-engineer-20260916-151057-80e61398 done"),
+		"run review-engineer-20260916-151057-80e61398 done",
+	);
+	assert.equal(
+		redactSecrets("run engineer-20260916-142822-148ae3cc done"),
+		"run engineer-20260916-142822-148ae3cc done",
+	);
+	assert.equal(
+		redactSecrets("run pm-20260916-105315-0a2a5071 done"),
+		"run pm-20260916-105315-0a2a5071 done",
+	);
 });
 
 // --- run records ---
@@ -353,7 +375,7 @@ test("appendEvent ignores events without a type and never throws", async () => {
 	assert.equal(events.length, 0);
 });
 
-// --- LLM provider health (health.jsonl) ---
+// --- LLM provider health (health.jsonl: persona-run granularity) ---
 
 test("appendHealth writes a health record and readHealth sums success/failure", async () => {
 	const dir = await makeWorkspace();
@@ -368,6 +390,37 @@ test("appendHealth writes a health record and readHealth sums success/failure", 
 	assert.equal(health[1].ok, false);
 	assert.equal(health[1].retryable, true);
 	await access(join(dir, HEALTH_LOG_REL));
+});
+
+// --- Per-LLM-turn calls (llm.jsonl: true individual LLM granularity) ---
+
+test("appendLlmCall writes per-turn records and readLlmCalls returns newest-first", async () => {
+	const dir = await makeWorkspace();
+	await appendLlmCall(dir, { provider: "joingonka", model: "m", runId: "r1", persona: "engineer", ok: true });
+	await appendLlmCall(dir, { provider: "joingonka", model: "m", runId: "r1", persona: "engineer", ok: false, reason: "429 overloaded" });
+
+	const calls = await readLlmCalls(dir);
+	assert.equal(calls.length, 2);
+	assert.equal(calls[0].ok, false);
+	assert.equal(calls[0].reason, "429 overloaded");
+	assert.equal(calls[1].ok, true);
+	await access(join(dir, LLM_LOG_REL));
+});
+
+test("extractLlmCalls parses per-turn ok/fail from pi JSON streams", async () => {
+	const okStream = [
+		JSON.stringify({ type: "session", id: "r1" }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "hi" }], usage: { input: 1, output: 1 } } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 overloaded" } }),
+	].join("\n");
+	const turns = extractLlmCalls(okStream);
+	assert.equal(turns.length, 2);
+	assert.equal(turns[0].ok, true);
+	assert.equal(turns[1].ok, false);
+	assert.match(turns[1].reason, /429/);
+	// Non-JSON output yields no turns.
+	assert.deepEqual(extractLlmCalls("plain text output"), []);
+	assert.deepEqual(extractLlmCalls(""), []);
 });
 
 // --- git/gh command parsing + classification ---
@@ -393,6 +446,31 @@ test("parseGitCommands extracts git and gh commands from persona output", () => 
 	// duplicates collapsed
 	const dup = parseGitCommands("$ git add .\n$ git add .");
 	assert.equal(dup.length, 1);
+});
+
+test("parseGitCommands extracts commands from bash-tool chains (cd && ...)", () => {
+	// pi's bash tool runs `cd <workspace> && <command> [&& ...]` — the git/gh
+	// invocation never starts a line, so chains must be split on shell
+	// operators. Regression: an engineer run that committed, pushed, and
+	// opened a PR produced zero command events (ESP showed "no action yet").
+	const out = [
+		"cd /home/u/ws/repo && git status && git branch -a && git log --oneline -5",
+		"cd /home/u/ws/repo && git add milestone.md README.md CHANGELOG.md && git status",
+		"cd /home/u/ws/repo && git commit -q -m \"docs: add milestone.md\"",
+		"cd /home/u/ws/repo && git push -u origin task/98-milestone-md 2>&1 | tail -5",
+		"cd /home/u/ws/repo && gh pr create --base main --head task/98-milestone-md --title \"docs\"",
+		"the engineer ran git status to check",
+	].join("\n");
+	const cmds = parseGitCommands(out);
+	const byType = cmds.map((c) => c.command);
+	assert.ok(byType.some((c) => c.startsWith("git push")), "push found");
+	assert.ok(byType.some((c) => c.startsWith("gh pr create")), "pr create found");
+	assert.ok(byType.some((c) => c.startsWith("git commit")), "commit found");
+	// prose mention mid-sentence must NOT match
+	assert.ok(!cmds.some((c) => c.command === "git status to check"));
+	// pipe tail must not leak into the push command
+	const push = byType.find((c) => c.startsWith("git push"));
+	assert.ok(!push.includes("tail"), `pipe split clean, got ${push}`);
 });
 
 test("classifyGitCommand maps lifecycle commands to event types", () => {

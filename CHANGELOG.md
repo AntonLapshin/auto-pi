@@ -7,6 +7,16 @@ All notable changes to the auto-pi harness. Format follows
 
 ### Added
 
+- Per-turn LLM call ledger (`llm.jsonl`): one record per finished assistant
+  message (turn) inside a persona's `pi --mode json` session
+  (`appendLlmCall`/`readLlmCalls`/`extractLlmCalls` in
+  `skills/logging/core.js`, written by `finalizePersonaRun` + per failed
+  retry attempt), so provider performance is visible at true LLM granularity.
+- `esp-status` v10 persona + LLM split: new `last10PersonaStatus` /
+  `lastPersonaCallFinished` (whole persona runs, from `health.jsonl`) alongside
+  `last10LlmStatus` / `lastLlmCallFinished` (now true per-turn LLM calls, from
+  `llm.jsonl`); stuck watchdog + model fallback consider both ledgers.
+
 - `docs/architecture.md`: harness map, one-active-project invariant,
   fresh-session persona model, single label glossary (`pi:*`, `type:*`,
   `size:*`, `milestone:*`, `priority:*`, `PI-NOTE`/`PI-REVIEW`/`PI-HUMAN`
@@ -38,6 +48,22 @@ All notable changes to the auto-pi harness. Format follows
   upstream timeout near the end of a persona run resumes where it left off;
   after `pi.maxRetries` (5) failed continues the next dispatch starts a new
   session as before.
+
+### Fixed
+
+- `esp-status` stuck false-positives: `stuck` no longer fires while the
+  persona's `pi` child is alive (an LLM call in flight — health/events are
+  only written when a call finishes or retries), failed LLM calls count as
+  activity, and a NaN-poisoned `Math.max` (one missing signal disabled the
+  whole watchdog) is fixed. New additive `llmActive` field marks an in-flight
+  call so a stale `lastLlmCallFinished` reads as "working…", not hung.
+- `esp-status` "no action yet" despite a fresh PR: bash tool-call commands
+  (`cd <ws> && git push …`, `gh pr create …`) are now kept from the pi JSON
+  stream and `parseGitCommands` splits shell chains, so commit/push/PR events
+  are emitted; `pr.created` renders the explicit PR number ("opened PR #101").
+- `redactSecrets` no longer scrubs hyphenated run IDs: the shield now covers
+  compound personas (`review-engineer-…`), which were redacted to
+  `[REDACTED]`, breaking run correlation in every ledger.
 
 ## [0.1.0] — 2026-08-27
 

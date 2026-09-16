@@ -39,6 +39,8 @@ import {
 	buildRunRecord,
 	appendEvent,
 	appendHealth,
+	appendLlmCall,
+	extractLlmCalls,
 	parseGitCommands,
 	classifyGitCommand,
 } from "../../skills/logging/core.js";
@@ -708,6 +710,19 @@ export function parseJsonModeOutput(raw) {
 	const addText = (msg) => {
 		for (const c of msg?.content || []) {
 			if (c?.type === "text" && c.text) textParts.push(c.text);
+			// Keep bash tool-call commands in the reconstructed output: the
+			// personas drive git/gh through the `bash` tool (e.g.
+			// `cd <ws> && git push ...`), which never appears in the assistant
+			// prose. Without this, downstream git/gh command parsing sees no
+			// commands and no lifecycle events (pr.created, git.push, ...) are
+			// ever emitted. Handles both pi's `toolCall` blocks
+			// ({ name: "bash", arguments: { command } }) and Anthropic-style
+			// `tool_use` blocks ({ name, input: { command } }).
+			const toolCmd =
+				((c?.type === "toolCall" || c?.type === "tool_use") &&
+					/^(bash|shell|exec)$/i.test(String(c?.name || "")) &&
+					(c?.arguments?.command || c?.input?.command)) || "";
+			if (typeof toolCmd === "string" && toolCmd.trim()) textParts.push(toolCmd.trim());
 		}
 	};
 
@@ -887,7 +902,8 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		}, config).catch((err) => warnSuppressed("persona.command-event", err));
 	}
 
-	// LLM-provider health: one record per invocation outcome.
+	// Persona-run health: one record per invocation outcome (persona-run
+	// granularity — NOT per individual LLM turn; see llm.jsonl below).
 	await appendHealth(workspace, {
 		provider: config?.pi?.provider || "",
 		model: config?.pi?.model || "",
@@ -898,6 +914,26 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 		durationMs: Math.round(durationSeconds * 1000),
 		reason: ok ? "" : (res.stderr || res.stdout || "").slice(0, 200),
 	}, config).catch((err) => warnSuppressed("persona.health-record", err));
+
+	// True per-LLM-turn calls: one llm.jsonl record per finished assistant
+	// message (turn) in the pi JSON stream, with per-turn ok/fail.
+	try {
+		const turns = extractLlmCalls(res.stdout || "");
+		const at = finishedAt || new Date().toISOString();
+		for (const t of turns) {
+			await appendLlmCall(workspace, {
+				at,
+				provider: config?.pi?.provider || "",
+				model: config?.pi?.model || "",
+				runId,
+				persona,
+				ok: t.ok,
+				reason: t.reason || "",
+			}, config).catch((err) => warnSuppressed("persona.llm-record", err));
+		}
+	} catch (err) {
+		warnSuppressed("persona.llm-record", err);
+	}
 
 	return {
 		ok,
@@ -1027,6 +1063,26 @@ export async function runPersonaWithRetry(opts = {}) {
 			retryable,
 			reason,
 		}, config).catch((err) => warnSuppressed("persona.retry-health", err));
+		// Per-LLM-turn calls from this failed attempt: the final
+		// `finalizePersonaRun` only sees the LAST attempt's stdout, so log
+		// this attempt's finished turns now or they are lost.
+		try {
+			const turns = extractLlmCalls(res.stdout || "");
+			const at = new Date().toISOString();
+			for (const t of turns) {
+				await appendLlmCall(workspace, {
+					at,
+					provider: config?.pi?.provider || "",
+					model: config?.pi?.model || "",
+					runId,
+					persona,
+					ok: t.ok,
+					reason: t.reason || reason.slice(0, 200),
+				}, config).catch((err) => warnSuppressed("persona.retry-llm-record", err));
+			}
+		} catch (err) {
+			warnSuppressed("persona.retry-llm-record", err);
+		}
 		await sleep(delayMs);
 		retries += 1;
 	}

@@ -80,7 +80,7 @@ node ui/server/server.js   # serves /api/* (static serving optional)
 | `GET /api/usage`     | Token usage per day / per cycle |
 | `GET /api/errors`    | Recent errors (`?limit=N`) |
 | `GET /api/summary`   | Latest machine-readable execution summary |
-| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload v9 (proj/loop, stuck, persona, model, lastAction/lastActionAgoS last meaningful action, last10LlmStatus LLM bar history, lastLlmCallFinished liveness) |
+| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload v10 (proj/loop, stuck, persona, model, lastAction/lastActionAgoS last meaningful action, last10PersonaStatus persona-run bar history, lastPersonaCallFinished persona liveness, last10LlmStatus per-turn LLM bar history, lastLlmCallFinished per-turn liveness) |
 | `GET /api/healthz`   | Liveness |
 
 All endpoints are read-only and intended for local use.
@@ -121,16 +121,23 @@ must both be true, or the request refuses/times out:
     `Connection refused`; from another host it typically just hangs until it
     times out (SYN dropped by firewall/no listener).
 
-### ESP32 v9 payload (trimmed)
+### ESP32 v10 payload (trimmed)
 
-v9 keeps only what the pocket display shows — old firmware must upgrade.
+v10 keeps only what the pocket display shows — old firmware must upgrade.
 See `/api/status` for the full dashboard payload (provider, stats, usage).
+v9 `last10LlmStatus`/`lastLlmCallFinished` meant whole persona runs and were
+renamed in v10 to `last10PersonaStatus`/`lastPersonaCallFinished`; the v10
+`last10LlmStatus`/`lastLlmCallFinished` are true per-turn LLM calls from
+`llm.jsonl` (one record per finished assistant message inside a persona's
+`pi` session).
 
 ```
 {proj} ({loop} → ON/OFF)   e.g. timeline (ON)
 {model}                     e.g. deepseek-ai/DeepSeek-V4-Flash-0731
+{last10PersonaStatus}       e.g. 10 bars, green=true / red=false (newest last)
+{lastPersonaCallFinished → "5m ago"}   e.g. last persona run 5m ago
 {last10LlmStatus}           e.g. 10 bars, green=true / red=false (newest last)
-{lastLlmCallFinished → "5m ago"}   e.g. last llm call 5m ago
+{lastLlmCallFinished → "30s ago"}   e.g. last llm call 30s ago
 {lastAction + lastActionAgoS → "3m ago"}  e.g. commit 3m ago
 {persona}                   e.g. ENGINEER
 {stuck} → STUCK             large red text when true
@@ -139,13 +146,32 @@ See `/api/status` for the full dashboard payload (provider, stats, usage).
 * `lastAction` / `lastActionAgoS` — last GitHub-visible action (issue/PR
   create, review, merge, push/commit), not the loop heartbeat. `-` / `-1`
   when none yet.
-* `last10LlmStatus` — up to 10 booleans, newest first, from `health.jsonl`
-  (success or fail). Empty when no LLM calls recorded yet.
-* `lastLlmCallFinished` — seconds since the newest `health.jsonl` record
+* `last10PersonaStatus` — up to 10 booleans, newest first, from `health.jsonl`
+  (one per whole persona-run invocation outcome + one per retry).
+  Empty when no persona runs recorded yet.
+* `lastPersonaCallFinished` — seconds since the newest `health.jsonl` record
+  (success or fail); `-1` when none yet.
+* `last10LlmStatus` — up to 10 booleans, newest first, from `llm.jsonl`
+  (one per individual finished LLM turn). Empty when no LLM turns recorded yet.
+* `lastLlmCallFinished` — seconds since the newest `llm.jsonl` record
   (success or fail); `-1` when none yet.
 * `stuck=true` when the active persona record is older than
-  `loop.personaTimeoutMs` (default 1h) or silent longer than
-  `loop.personaInactivityMs` (default 10m), or active while the loop is dead.
+  `loop.personaTimeoutMs` (default 1h), or silent longer than
+  `loop.personaInactivityMs` (default 10m) **with no live `pi` child** for the
+  run, or active while the loop is dead. A live child means a persona run is
+  in flight — actively working, never stuck (health/events are only written when
+  a run finishes or retries, so failed runs count as activity too). The
+  single-run timeout is the wall-clock cap, enforced by the loop itself.
+* `llmActive=true` when the active run has a live `pi` child (a persona run is
+  in flight even while `lastPersonaCallFinished`/`lastLlmCallFinished` go
+  stale). Additive v9 field — old firmware ignores it.
+* `lastPersonaCallFinished` / `lastLlmCallFinished` are the last *finished*
+  run / turn; they go stale during a long in-flight run — pair with
+  `llmActive` ("working…").
+* `lastAction` comes from classified git/gh lifecycle events. Persona tool
+  calls (`cd <ws> && git push …`, `gh pr create …`) are extracted from the pi
+  JSON stream, so pushes/PRs always surface — a "no action yet" (`-`) with a
+  fresh PR means the event ledger missed it (check `events.jsonl`).
 
 ## Data source
 
@@ -154,7 +180,9 @@ into the active project's `.pi/logs/`:
 
 - `events.jsonl` — progress events (persona spawn/finish, git/gh commands,
   issue/PR lifecycle, dispatch, LLM retries)
-- `health.jsonl` — LLM-provider health records
+- `health.jsonl` — persona-run health records (one per whole persona-run
+  outcome + one per retry)
+- `llm.jsonl` — per-turn LLM call records (one per finished assistant message)
 - `runs.jsonl` — persona run records
 - `errors.jsonl` — errors
 - `usage.jsonl` — per-day/per-cycle token accumulation

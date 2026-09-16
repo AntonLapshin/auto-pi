@@ -25,10 +25,12 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v9: proj/loop,
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v10: proj/loop,
  *                     stuck, persona, model, lastAction/lastActionAgoS last
- *                     meaningful action, last10LlmStatus bar history,
- *                     lastLlmCallFinished liveness)
+ *                     meaningful action, last10PersonaStatus persona-run bar
+ *                     history, lastPersonaCallFinished liveness,
+ *                     last10LlmStatus per-turn LLM bar history,
+ *                     lastLlmCallFinished per-turn liveness)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -36,8 +38,10 @@
  */
 
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
@@ -46,6 +50,7 @@ import {
 	readUsage,
 	readEvents,
 	readHealth,
+	readLlmCalls,
 	logPaths,
 } from "../../skills/logging/core.js";
 import { readActiveProject, checkLock } from "../../extensions/loop/orchestrator.js";
@@ -96,6 +101,47 @@ async function readConfig(workspace) {
 		return JSON.parse(raw);
 	} catch {
 		return null;
+	}
+}
+
+/**
+ * Best-effort check: is the `pi` child process for this persona run still
+ * alive? The loop runs each persona as `pi -p --session-id <runId> ...`, so a
+ * live process carrying that session id means a persona run is still in flight
+ * (the persona is actively working, even if no ledger row has been written
+ * yet — health/events are only appended when a run finishes or retries).
+ * Never throws; returns false when the scan fails so callers fall back to the
+ * ledger-only behaviour.
+ */
+const execFileAsync = promisify(execFile);
+export async function isPersonaProcessAlive(runId, workspace = "") {
+	const wantId = typeof runId === "string" && runId && runId !== "[REDACTED]" ? runId : "";
+	if (!wantId && !workspace) return false;
+	try {
+		const { stdout } = await execFileAsync("ps", ["-eo", "pid,args"], { timeout: 3000 });
+		for (const line of String(stdout || "").split("\n")) {
+			const m = line.trim().match(/^(\d+)\s+(.*)$/);
+			if (!m) continue;
+			const [, pid, args] = m;
+			// The loop runs each persona as `pi -p --session-id <runId> ...`.
+			if (wantId && args.includes("--session-id") && args.includes(wantId)) return true;
+			// Fallback when the run ID is missing/redacted in the ledgers: any
+			// live process carrying a pi persona session (`--session-id`,
+			// which only persona children use) and rooted in this workspace
+			// means a persona run is in flight for the project.
+			if (workspace && args.includes("--session-id")) {
+				try {
+					const { readlink } = await import("node:fs/promises");
+					const cwd = await readlink(`/proc/${pid}/cwd`);
+					if (cwd === workspace) return true;
+				} catch {
+					// process exited mid-scan or cwd unreadable — keep scanning
+				}
+			}
+		}
+		return false;
+	} catch {
+		return false;
 	}
 }
 
@@ -308,7 +354,14 @@ function extractNumber(cmd) {
 export function humanizeMeaningfulEvent(e) {
 	const type = String(e?.type || "");
 	const cmd = String(e?.data?.command || "");
-	const n = extractNumber(cmd);
+	// Prefer an explicit number carried on the event (e.g. backfilled or
+	// API-observed PR/issue numbers); fall back to parsing the command text.
+	// `gh pr create` commands carry no number, so without this an opened PR
+	// renders numberless even when the PR number is known.
+	const explicit = e?.data?.prNumber ?? e?.data?.issueNumber ?? e?.data?.number;
+	const n = (explicit !== undefined && explicit !== null && String(explicit).trim() !== "")
+		? String(explicit).trim()
+		: extractNumber(cmd);
 	switch (type) {
 		case "issue.created": return n ? `filed ticket #${n}` : "filed ticket";
 		case "issue.closed": return n ? `closed #${n}` : "closed ticket";
@@ -340,54 +393,95 @@ export function humanizeMeaningfulEvent(e) {
 }
 
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v9 layout contract (170x320 portrait) — trimmed to what the display shows:
+ * v10 layout contract (170x320 portrait) — trimmed to what the display shows:
  *   Project (Loop)  -> `proj`, `loop` (`ON`/`OFF` badge + header color)
  *   Stuck           -> `stuck` bool (active record older than
- *                      loop.personaTimeoutMs / personaInactivityMs, or active
- *                      while the loop is dead); firmware renders large red STUCK
+ *                      loop.personaTimeoutMs, or silent longer than
+ *                      loop.personaInactivityMs with NO live `pi` child for the
+ *                      run, or active while the loop is dead — a live child
+ *                      means a persona run is in flight, i.e. actively working);
+ *                      firmware renders large red STUCK
+ *   LLM active      -> `llmActive` bool (active run with a live `pi` child:
+ *                      a persona run is in flight even when
+ *                      `lastPersonaCallFinished`/`lastLlmCallFinished` are
+ *                      stale); render as e.g. "working…" (v9 additive field,
+ *                      old firmware ignores it)
  *   Persona         -> `persona` (pm | engineer | review-engineer | ...)
  *   Model           -> `model` (effective pi model; `provider` removed in v8
  *                      to save space — see /api/status for provider detail)
  *   Last action     -> `lastAction` (e.g. "merged PR #12") +
  *                      `lastActionAgoS` (seconds since it happened, -1 when
  *                      none); render as e.g. "commit 3m ago"
+ *   Persona bars    -> `last10PersonaStatus` (up to 10 booleans, newest first;
+ *                      `true` = green bar, `false` = red bar) from
+ *                      `health.jsonl` (one record per whole persona-run
+ *                      invocation outcome + one per retry)
+ *   Persona liveness -> `lastPersonaCallFinished` (seconds since the newest
+ *                      `health.jsonl` record, ok or fail — i.e. the last
+ *                      FINISHED persona run; -1 when none); render as e.g.
+ *                      "last persona run 5m ago" (stale while a run is in
+ *                      flight — see `llmActive`)
  *   LLM bars        -> `last10LlmStatus` (up to 10 booleans, newest first;
- *                      `true` = green bar, `false` = red bar)
+ *                      `true` = green bar, `false` = red bar) from `llm.jsonl`
+ *                      (one record per individual finished LLM turn inside a
+ *                      persona's `pi` session)
  *   LLM liveness    -> `lastLlmCallFinished` (seconds since the newest
- *                      health.jsonl record, ok or fail; -1 when none);
- *                      render as e.g. "last llm call 5m ago"
+ *                      `llm.jsonl` record, ok or fail — i.e. the last
+ *                      FINISHED individual LLM turn; -1 when none); render as
+ *                      e.g. "last llm call 30s ago"
+ * v9 fields `last10LlmStatus`/`lastLlmCallFinished` meant persona runs and
+ * were renamed in v10 (`last10PersonaStatus`/`lastPersonaCallFinished`);
+ * the v10 `last10LlmStatus`/`lastLlmCallFinished` are true per-turn LLM
+ * calls. Old v9 firmware reading `last10LlmStatus` now sees true LLM bars.
  * v8 fields (`status`, `state`, `ok_n`/`fail_n`, `run_id`/`run_ok_n`,
  * `act`/`act_t`/`act_ago_s`, `ago_s`, `last`, `tok_today`, `err`, `at`)
  * were removed in v9 — old firmware must upgrade. */
-export async function buildEspStatus(active) {
+export async function buildEspStatus(active, opts = {}) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
-	const [runs, events, health] = await Promise.all([
+	const [runs, events, health, llmCalls] = await Promise.all([
 		readRuns(workspace),
 		readEvents(workspace, { limit: 200 }),
 		readHealth(workspace, { limit: 100 }),
+		readLlmCalls(workspace, { limit: 100 }),
 	]);
 	const loop = await loopState(workspace);
 	const now = Date.now();
 	const lastRun = runs.length ? runs[runs.length - 1] : null;
 
-	// Last-10 LLM outcomes (health.jsonl is most-recent-first, so head it):
+	// Last-10 persona-run outcomes (health.jsonl is most-recent-first, head it):
 	// newest first, `true` = success (green bar), `false` = fail (red bar).
-	const win = health.slice(0, 10);
-	const last10LlmStatus = win.map((h) => Boolean(h.ok));
-	// Seconds since the last LLM call finished (success or fail), -1 if none.
-	const lastHealthMs = Date.parse(win[0]?.at || "");
-	const lastLlmCallFinished = Number.isFinite(lastHealthMs)
-		? Math.max(0, Math.floor((now - lastHealthMs) / 1000))
+	const personaWin = health.slice(0, 10);
+	const last10PersonaStatus = personaWin.map((h) => Boolean(h.ok));
+	// Seconds since the last persona run finished (success or fail), -1 if none.
+	const lastPersonaMs = Date.parse(personaWin[0]?.at || "");
+	const lastPersonaCallFinished = Number.isFinite(lastPersonaMs)
+		? Math.max(0, Math.floor((now - lastPersonaMs) / 1000))
+		: -1;
+
+	// Last-10 individual LLM-turn outcomes (llm.jsonl, most-recent-first):
+	// newest first, `true` = success (green bar), `false` = fail (red bar).
+	const llmWin = llmCalls.slice(0, 10);
+	const last10LlmStatus = llmWin.map((h) => Boolean(h.ok));
+	// Seconds since the last individual LLM turn finished, -1 if none.
+	const lastLlmMs = Date.parse(llmWin[0]?.at || "");
+	const lastLlmCallFinished = Number.isFinite(lastLlmMs)
+		? Math.max(0, Math.floor((now - lastLlmMs) / 1000))
 		: -1;
 
 	// Model: effective resolution (config -> PI_* env -> pi settings), then
-	// the most recent non-empty model in health.jsonl. Truncated for the tiny
-	// display; "-" when unknown.
+	// the most recent non-empty model in health.jsonl / llm.jsonl. Truncated
+	// for the tiny display; "-" when unknown.
 	let model = String(resolveProviderModel({ config }).model || "").slice(0, 48);
 	if (!model) {
 		for (let i = 0; i < health.length; i += 1) {
 			const m = String(health[i]?.model || "").trim();
+			if (m) { model = m.slice(0, 48); break; }
+		}
+	}
+	if (!model) {
+		for (let i = 0; i < llmCalls.length; i += 1) {
+			const m = String(llmCalls[i]?.model || "").trim();
 			if (m) { model = m.slice(0, 48); break; }
 		}
 	}
@@ -429,6 +523,16 @@ export async function buildEspStatus(active) {
 	// Liveness: stuck vs active vs idle, driven by loop config
 	// (loop.personaInactivityMs / personaTimeoutMs, defaults mirror
 	// config/config.default.json so a missing config still behaves).
+	//
+	// Activity = newest of run start, newest event, newest persona-run record.
+	// Health counts so failed persona runs (retries) prove the persona is working.
+	// When the ledgers go silent past the inactivity watchdog we additionally
+	// check whether the run's `pi` child is still alive: a live child means a
+	// persona run is in flight (actively working — health/events are only written
+	// when a run finishes or retries), so it is NOT stuck. The single-run
+	// timeout is the wall-clock cap below, enforced by the loop itself
+	// (executePi kills + retries a hung persona). Only a silent run with NO
+	// live child — the loop wedged between ledger writes — is stuck.
 	const inactivityMs = Number(config?.loop?.personaInactivityMs) > 0
 		? Number(config.loop.personaInactivityMs) : 600000;
 	const timeoutMs = Number(config?.loop?.personaTimeoutMs) > 0
@@ -438,21 +542,34 @@ export async function buildEspStatus(active) {
 	);
 	const stopped = Boolean(loop.stopFilePresent);
 	const effectiveRunning = Boolean(loop.running && !stopped);
+	const startedMs = Date.parse(lastRun?.startedAt || "");
+	const timedOut = Boolean(activeP) && Number.isFinite(startedMs) && now - startedMs > timeoutMs;
 	let stuck = false;
+	let llmActive = false;
 	if (activeP) {
-		const startedMs = Date.parse(lastRun?.startedAt || "");
 		if (!loop.running) {
 			stuck = true; // persona marked active but the loop is dead
-		} else if (Number.isFinite(startedMs) && now - startedMs > timeoutMs) {
+		} else if (timedOut) {
 			stuck = true; // exceeded the wall-clock cap
 		} else {
 			const newestEventMs = Date.parse(events[0]?.at || "");
-			const lastActivityMs = Math.max(
-				Number.isFinite(startedMs) ? startedMs : NaN,
-				Number.isFinite(newestEventMs) ? newestEventMs : NaN,
-			);
-			if (Number.isFinite(lastActivityMs) && now - lastActivityMs > inactivityMs) {
-				stuck = true; // silent longer than the inactivity watchdog
+			const newestHealthMs = Date.parse(health[0]?.at || "");
+			const newestLlmMs = Date.parse(llmCalls[0]?.at || "");
+			// NB: Math.max with ANY NaN operand returns NaN, so filter first —
+			// a missing signal (e.g. no health rows yet) must not poison the
+			// watchdog into never firing.
+			const candidates = [startedMs, newestEventMs, newestHealthMs, newestLlmMs].filter(Number.isFinite);
+			const lastActivityMs = candidates.length ? Math.max(...candidates) : NaN;
+			const silent = Number.isFinite(lastActivityMs) && now - lastActivityMs > inactivityMs;
+			const checkAlive = typeof opts?.isPersonaAlive === "function"
+				? opts.isPersonaAlive
+				: isPersonaProcessAlive;
+			const childAlive = effectiveRunning
+				? await checkAlive(lastRun?.runId, workspace).catch(() => false)
+				: false;
+			llmActive = effectiveRunning && !timedOut && Boolean(childAlive);
+			if (silent && !childAlive) {
+				stuck = true; // silent longer than the watchdog with no live child
 			}
 		}
 	}
@@ -462,10 +579,13 @@ export async function buildEspStatus(active) {
 		proj: String(active.projectName || "").slice(0, 24),
 		loop: effectiveRunning,
 		stuck,
+		llmActive,
 		persona,
 		model,
 		lastAction,
 		lastActionAgoS,
+		last10PersonaStatus,
+		lastPersonaCallFinished,
 		last10LlmStatus,
 		lastLlmCallFinished,
 	};

@@ -17,7 +17,8 @@ which is git-ignored in generated projects (see `templates/project/.gitignore.j2
 | `latest.log`    | Latest plain-text activity line (tail-friendly)                 |
 | `usage.jsonl`   | Per-day / per-cycle token accumulation (feeds M13 + `/loop-status`)  |
 | `events.jsonl`  | Structured, deterministic progress events (persona spawn/finish, git/gh commands, issue/PR lifecycle, dispatch, LLM retries) — the auto-pi UI timeline |
-| `health.jsonl`  | Per-invocation LLM-provider health records (success/failure, exit code, retries, duration) — powers provider success rate |
+| `health.jsonl`  | Per-persona-run health records (whole-run success/failure, exit code, retries, duration) — powers persona-run success rate + `last10PersonaStatus` |
+| `llm.jsonl`     | Per-turn LLM call records (one per finished assistant message inside a persona's `pi` session: success/failure + reason) — powers true per-call provider signal + `last10LlmStatus` |
 
 ## Run-log schema (plan.md §20.1)
 
@@ -41,9 +42,19 @@ plain object (no prose) so the UI can aggregate reliably. Emitted types:
 
 ## Health-ledger schema (`health.jsonl`)
 
-One record per persona invocation outcome plus one per retry attempt:
+One record per persona-run invocation outcome plus one per retry attempt:
 `{ version, at, provider, model, runId, persona, ok, exitCode, retries,
-retryable, durationMs, reason }`. Used to compute LLM-provider success rate.
+retryable, durationMs, reason }`. Persona-run granularity (NOT per LLM turn).
+Used to compute persona-run success rate.
+
+## Per-turn LLM ledger schema (`llm.jsonl`)
+
+One record per individual finished LLM turn (assistant `message_end` in the
+`pi --mode json` stream): `{ version, at, provider, model, runId, persona,
+ok, reason }`. `ok=false` when the turn carries `stopReason: "error"` or an
+`errorMessage` (provider 429/5xx/quota/…). Extracted via `extractLlmCalls`,
+written by `finalizePersonaRun` (+ per failed retry attempt). Used to compute
+the true per-call provider signal.
 
 ## Git-command observability
 
@@ -75,6 +86,7 @@ import {
   appendRunRecord, appendErrorRecord, writeSummary,
   accumulateTokens, redactSecrets,
   appendEvent, appendHealth, readEvents, readHealth,
+  appendLlmCall, readLlmCalls, extractLlmCalls,
   parseGitCommands, classifyGitCommand,
 } from "../skills/logging/core.js";
 
@@ -82,6 +94,7 @@ await appendRunRecord(workspace, buildRunRecord({ runId, persona, status: "ok" }
 await accumulateTokens(workspace, { tokensInput, tokensOutput, tokensTotal });
 await appendEvent(workspace, { type: "pr.merged", persona, runId, data: { prNumber } });
 await appendHealth(workspace, { provider, model, runId, persona, ok: true });
+await appendLlmCall(workspace, { provider, model, runId, persona, ok: true });
 const commands = parseGitCommands(stdout, stderr);
 await writeSummary({ workspace, config, state, lastRun, errors });
 ```

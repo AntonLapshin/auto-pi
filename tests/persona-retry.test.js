@@ -221,6 +221,33 @@ test("parseJsonModeOutput: sums usage across multiple assistant turns", () => {
 	assert.equal(r.tokens.tokensTotal, 330);
 });
 
+test("parseJsonModeOutput: keeps bash tool-call commands in the reconstructed output", () => {
+	// Personas drive git/gh through the bash tool; the assistant prose never
+	// contains the command lines. Without the toolCall blocks, git/gh command
+	// parsing sees nothing and no lifecycle events are emitted.
+	const stream = [
+		JSON.stringify({ type: "session", version: 3, id: "x", cwd: "/ws" }),
+		JSON.stringify({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "Committed. Now let me push the branch." },
+					{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "cd /ws && git commit -q -m \"docs: thing\"" } },
+					{ type: "toolCall", id: "t2", name: "bash", arguments: { command: "cd /ws && git push -u origin task/1-x" } },
+				],
+				usage: { input: 100, output: 10, totalTokens: 110, cost: { total: 0.01 } },
+				stopReason: "toolUse",
+			},
+		}),
+	].join("\n");
+	const r = parseJsonModeOutput(stream);
+	assert.match(r.stdout, /Committed/);
+	assert.match(r.stdout, /git commit/);
+	assert.match(r.stdout, /git push/);
+	assert.equal(r.tokens.tokensTotal, 110);
+});
+
 test("parseJsonModeOutput: falls back to agent_end when no message_end is seen", () => {
 	const stream = JSON.stringify({
 		type: "agent_end",
@@ -603,4 +630,37 @@ test("executePi: forces a non-zero exit when the provider errors despite pi exit
 	assert.match(res.stderr || "", /insufficient balance/);
 	// And it classifies as retryable so the retry wrapper will retry then stop.
 	assert.equal(isRetryablePersonaFailure(res), true);
+});
+
+test("runPersonaWithRetry: logs one llm.jsonl record per finished LLM turn", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-llm-"));
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	const stdout = [
+		JSON.stringify({ type: "session", id: "r1" }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "step 1" }], usage: { input: 5, output: 5 } } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 overloaded" } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "step 3" }], usage: { input: 5, output: 5 } } }),
+	].join("\n");
+	const execute = async () => ({ exitCode: 0, stdout, stderr: "" });
+	const res = await runPersonaWithRetry({
+		workspace: dir,
+		persona: "engineer",
+		runId: "engineer-20260916-120000-cccccccc",
+		contextFile: join(dir, "ctx.md"),
+		task: "do work",
+		config: { pi: { maxRetries: 0 }, project: {} },
+		env: {},
+		execute,
+	});
+	assert.equal(res.ok, true);
+	const { readLlmCalls, readHealth } = await import("../skills/logging/core.js");
+	const calls = await readLlmCalls(dir);
+	assert.equal(calls.length, 3);
+	assert.deepEqual(calls.map((c) => c.ok).sort(), [false, true, true]);
+	// Persona-run health still records a single ok outcome.
+	const health = await readHealth(dir);
+	assert.equal(health.length, 1);
+	assert.equal(health[0].ok, true);
 });

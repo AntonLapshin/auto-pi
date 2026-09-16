@@ -61,6 +61,9 @@ export const EVENTS_LOG_REL = join(LOGS_DIR_REL, "events.jsonl");
 /** Relative (to workspace) path of the LLM-provider health ledger. */
 export const HEALTH_LOG_REL = join(LOGS_DIR_REL, "health.jsonl");
 
+/** Relative (to workspace) path of the per-LLM-turn call ledger. */
+export const LLM_LOG_REL = join(LOGS_DIR_REL, "llm.jsonl");
+
 /** Version of the run-log record schema (plan.md §20.1). */
 export const RUN_LOG_VERSION = 1;
 
@@ -85,6 +88,7 @@ export function logPaths(workspace) {
 		usage: join(workspace, USAGE_LOG_REL),
 		events: join(workspace, EVENTS_LOG_REL),
 		health: join(workspace, HEALTH_LOG_REL),
+		llm: join(workspace, LLM_LOG_REL),
 	};
 }
 
@@ -114,12 +118,15 @@ const SECRET_PATTERNS = [
  */
 export function redactSecrets(text) {
 	if (typeof text !== "string" || text.length === 0) return text;
-	// Protect auto-pi run IDs (e.g. `pm-20260820-181242-251ee072`) from being
-	// flagged as high-entropy secrets: the run ID is the lookup key for the
-	// persona session (`pi --name <runId>`) and must stay visible in logs for
+	// Protect auto-pi run IDs (e.g. `pm-20260820-181242-251ee072`,
+	// `review-engineer-20260916-151057-80e61398`) from being flagged as
+	// high-entropy secrets: the run ID is the lookup key for the persona
+	// session (`pi --name <runId>`) and must stay visible in logs for
 	// observability. We swap them for a placeholder before running the pattern
-	// matcher, then restore them afterwards.
-	const runIdPattern = /(?<![\w-])([a-z]+-\d{8}-\d{6}-[0-9a-f]{8})(?![\w-])/g;
+	// matcher, then restore them afterwards. The persona segment allows
+	// hyphens (`review-engineer`) — without that, hyphenated run IDs were
+	// redacted to `[REDACTED]`, breaking run correlation in every ledger.
+	const runIdPattern = /(?<![\w-])([a-z]+(?:-[a-z]+)*-\d{8}-\d{6}-[0-9a-f]{8})(?![\w-])/g;
 	const runIds = [];
 	const shielded = text.replace(runIdPattern, (m) => {
 		runIds.push(m);
@@ -578,11 +585,13 @@ export async function readEvents(workspace, opts = {}) {
 }
 
 /**
- * Append an LLM-provider health record to `health.jsonl`.
+ * Append a persona-run health record to `health.jsonl`.
  *
- * One record per persona invocation outcome (after retries), plus one per
+ * One record per persona-run invocation outcome (after retries), plus one per
  * retry attempt, so the UI can compute provider success rate, failure
- * reasons, and retry frequency over time.
+ * reasons, and retry frequency over time. NOTE: despite the "LLM health"
+ * name this is persona-run granularity — see `llm.jsonl`
+ * (`appendLlmCall`/`extractLlmCalls`) for true per-LLM-turn records.
  *
  * Schema: { version, at, provider, model, runId, persona, ok, exitCode,
  *           retries, retryable, durationMs, reason }
@@ -644,6 +653,134 @@ export async function readHealth(workspace, opts = {}) {
 }
 
 /**
+ * Append a per-LLM-turn call record to `llm.jsonl`.
+ *
+ * One record per individual LLM (assistant-message) turn inside a persona's
+ * `pi --mode json` session — as opposed to `health.jsonl`, which holds one
+ * record per whole persona-run invocation outcome (plus one per retry).
+ * Powers the true per-call provider signal (`last10LlmStatus` /
+ * `lastLlmCallFinished` on `/api/esp-status`).
+ *
+ * Schema: { version, at, provider, model, runId, persona, ok, reason }
+ *
+ * @param {string} workspace
+ * @param {object} l  llm call record fields
+ * @param {object} [config]
+ * @returns {Promise<object|null>}
+ */
+export async function appendLlmCall(workspace, l = {}, config = {}) {
+	try {
+		if (!workspace) return null;
+		const full = {
+			version: 1,
+			at: l.at || new Date().toISOString(),
+			provider: l.provider || "",
+			model: l.model || "",
+			runId: l.runId || "",
+			persona: l.persona || "",
+			ok: Boolean(l.ok),
+			reason: l.reason || "",
+		};
+		await appendJsonl(workspace, LLM_LOG_REL, full, config);
+		return full;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Read all per-LLM-turn call records from `llm.jsonl` (most recent first).
+ * @param {string} workspace
+ * @param {object} [opts] { limit? }
+ * @returns {Promise<Array<object>>}
+ */
+export async function readLlmCalls(workspace, opts = {}) {
+	const { llm } = logPaths(workspace);
+	try {
+		const raw = await readFile(llm, "utf8");
+		const out = [];
+		for (const line of raw.split("\n")) {
+			const t = line.trim();
+			if (!t) continue;
+			try {
+				out.push(JSON.parse(t));
+			} catch {
+				// skip malformed
+			}
+		}
+		const limit = Number(opts?.limit);
+		return limit > 0 ? out.slice(-limit).reverse() : out.reverse();
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Extract per-LLM-turn outcomes from a `pi --mode json` stdout stream.
+ *
+ * Each assistant `message_end` event is one finished LLM call (turn): `ok`
+ * is false when the message carries `stopReason: "error"` or a non-empty
+ * `errorMessage` (provider 429/5xx/quota/…), true otherwise. Non-JSON output
+ * (stub executors, error banners) yields no turns.
+ *
+ * Order is oldest-first (stream order) so callers can append directly.
+ *
+ * @param {string} raw  raw stdout from `pi --mode json`
+ * @returns {Array<{ ok: boolean, reason: string }>}
+ */
+export function extractLlmCalls(raw) {
+	const text = String(raw || "");
+	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+	if (!lines.length) return [];
+	let first;
+	try {
+		first = JSON.parse(lines[0]);
+	} catch {
+		return [];
+	}
+	if (!first || typeof first !== "object" || !first.type) return [];
+	const out = [];
+	let sawAssistant = false;
+	for (const line of lines) {
+		let ev;
+		try {
+			ev = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (ev?.type === "message_end" && ev.message?.role === "assistant") {
+			sawAssistant = true;
+			const stopReason = String(ev.message?.stopReason || "");
+			const errMsg = String(ev.message?.errorMessage || "").trim();
+			const ok = !(stopReason === "error" || errMsg);
+			out.push({ ok, reason: ok ? "" : (errMsg || `provider stopped: ${stopReason}`).slice(0, 200) });
+		}
+	}
+	if (sawAssistant) return out;
+	// Fallback: providers that only report via `agent_end.messages`.
+	for (const line of lines) {
+		let ev;
+		try {
+			ev = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (ev?.type === "agent_end" && Array.isArray(ev.messages)) {
+			for (const m of ev.messages) {
+				if (m?.role === "assistant") {
+					const stopReason = String(m?.stopReason || "");
+					const errMsg = String(m?.errorMessage || "").trim();
+					const ok = !(stopReason === "error" || errMsg);
+					out.push({ ok, reason: ok ? "" : (errMsg || `provider stopped: ${stopReason}`).slice(0, 200) });
+				}
+			}
+			break;
+		}
+	}
+	return out;
+}
+
+/**
  * Parse git/gh commands from a persona session's stdout/stderr.
  *
  * The personas drive the project through `git` and `gh` CLI commands, so we
@@ -661,15 +798,22 @@ export function parseGitCommands(stdout, stderr = "") {
 	const text = `${stdout || ""}\n${stderr || ""}`;
 	const seen = new Set();
 	const out = [];
-	// Match lines that start (after optional prompt/whitespace) with git/gh and
-	// capture the full command line. Avoids matching prose that merely mentions
-	// "git" mid-sentence.
-	const re = /(?:^|\n)\s*(?:\$\s*)?(git|gh)\s+([^\n]{1,200})/g;
-	let m;
-	while ((m = re.exec(text)) !== null) {
+	// Match segments that start (after optional prompt/whitespace) with git/gh
+	// and capture the command. Text is first split on newlines AND shell chain
+	// operators (`&&`, `||`, `;`, `|`) because the personas invoke git/gh
+	// through the bash tool as `cd <workspace> && <command>`, which never
+	// starts a line. Avoids matching prose that merely mentions "git"
+	// mid-sentence (the segment must START with git/gh).
+	const segments = text.split(/\n|&&|\|\||[;|]/);
+	const re = /^\s*(?:\$\s*)?(git|gh)\s+([^\n]{1,200})/;
+	for (let seg of segments) {
+		seg = seg.trim();
+		if (!seg) continue;
+		const m = re.exec(seg);
+		if (!m) continue;
 		const kind = m[1] === "git" ? "git" : "gh";
-		const cmd = `${m[1]} ${m[2].trim()}`;
-		if (!cmd || cmd.length > 220) continue;
+		const cmd = `${m[1]} ${m[2].trim()}`.slice(0, 220);
+		if (!cmd) continue;
 		if (seen.has(cmd)) continue;
 		seen.add(cmd);
 		out.push({ command: cmd, kind });
