@@ -1,10 +1,10 @@
 /**
- * esp-status v8 tests.
+ * esp-status v9 tests.
  *
- * Contract: the pocket monitor reports the last *meaningful* (GitHub-visible)
- * action + per-run progress (run_ok_n), not the loop heartbeat, and exposes
- * stuck/state liveness driven by loop.personaInactivityMs/personaTimeoutMs.
- * `provider` was removed in v8 to save space.
+ * Contract: the pocket monitor payload is trimmed to what the display shows
+ * (proj/loop/stuck/persona/model/lastAction/lastActionAgoS/last10LlmStatus/
+ * lastLlmCallFinished). v8 fields (status/state/ok_n/fail_n/run_id/run_ok_n/
+ * act/act_t/act_ago_s/ago_s/last/tok_today/err/at) are gone.
  */
 
 import { test } from "node:test";
@@ -18,6 +18,19 @@ import {
 	humanizeMeaningfulEvent,
 	MEANINGFUL_EVENT_TYPES,
 } from "../ui/server/server.js";
+
+const V9_KEYS = new Set([
+	"ok",
+	"proj",
+	"loop",
+	"stuck",
+	"persona",
+	"model",
+	"lastAction",
+	"lastActionAgoS",
+	"last10LlmStatus",
+	"lastLlmCallFinished",
+]);
 
 async function makeWorkspace() {
 	const dir = await mkdtemp(join(tmpdir(), "auto-pi-esp-"));
@@ -62,6 +75,20 @@ function eventRecord(over = {}) {
 	};
 }
 
+function healthRecord(over = {}) {
+	return {
+		version: 1,
+		at: new Date().toISOString(),
+		provider: "joingonka",
+		model: "deepseek-ai/DeepSeek-V4-Flash-0731",
+		runId: "r-1",
+		persona: "engineer",
+		ok: true,
+		reason: "ok",
+		...over,
+	};
+}
+
 test("meaningful set excludes heartbeats, includes GitHub side-effects", () => {
 	assert.ok(MEANINGFUL_EVENT_TYPES.has("pr.merged"));
 	assert.ok(MEANINGFUL_EVENT_TYPES.has("issue.created"));
@@ -83,7 +110,7 @@ test("humanizeMeaningfulEvent renders short ESP labels", () => {
 	assert.ok(humanizeMeaningfulEvent({ type: "git.commit", data: {} }).length <= 40);
 });
 
-test("buildEspStatus reports last meaningful action + run_ok_n, no provider", async () => {
+test("buildEspStatus returns only the v9 fields", async () => {
 	const ws = await makeWorkspace();
 	const runId = "engineer-20260915-120000-aaaaaaaa";
 	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), [runRecord({ runId })]);
@@ -93,18 +120,57 @@ test("buildEspStatus reports last meaningful action + run_ok_n, no provider", as
 		eventRecord({ id: "e2", type: "git.commit", at: new Date(now - 6 * 60 * 1000).toISOString(), runId, data: { command: "git commit -m wip", kind: "git" } }),
 		eventRecord({ id: "e3", type: "git.push", at: new Date(now - 5 * 60 * 1000).toISOString(), runId, data: { command: "git push origin feat/foo", kind: "git" } }),
 	]);
-	await writeFile(join(ws, ".pi", "logs", "errors.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "usage.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "health.jsonl"), "", "utf8");
+	await writeJsonl(join(ws, ".pi", "logs", "health.jsonl"), [
+		healthRecord({ ok: true, at: new Date(now - 60 * 1000).toISOString() }),
+	]);
 
 	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
 	assert.equal(payload.ok, true);
-	assert.ok(!("provider" in payload), "provider removed in v8");
-	assert.equal(payload.act_t, "git.push");
-	assert.equal(payload.act, "pushed feat/foo");
-	assert.equal(payload.run_id, runId);
-	assert.equal(payload.run_ok_n, 2);
-	assert.ok(payload.act_ago_s >= 0 && payload.act_ago_s <= 3600, `act_ago_s fresh, got ${payload.act_ago_s}`);
+	assert.deepEqual(new Set(Object.keys(payload)), V9_KEYS);
+	assert.equal(payload.proj, "demo");
+	assert.equal(typeof payload.loop, "boolean");
+	assert.equal(typeof payload.stuck, "boolean");
+	assert.equal(payload.persona, "engineer");
+	assert.equal(payload.lastAction, "pushed feat/foo");
+	assert.ok(payload.lastActionAgoS >= 0 && payload.lastActionAgoS <= 3600, `lastActionAgoS fresh, got ${payload.lastActionAgoS}`);
+});
+
+test("buildEspStatus reports last-10 LLM outcomes newest-first + liveness", async () => {
+	const ws = await makeWorkspace();
+	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), []);
+	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), []);
+	const now = Date.now();
+	// health.jsonl is oldest-first on disk; readHealth flips to newest-first.
+	const rows = [];
+	for (let i = 0; i < 12; i += 1) {
+		rows.push(healthRecord({
+			ok: i % 3 !== 0, // pattern: F T T F T T ...
+			at: new Date(now - (12 - i) * 60 * 1000).toISOString(),
+		}));
+	}
+	// Newest record (last on disk): a failure 30s ago.
+	rows.push(healthRecord({ ok: false, at: new Date(now - 30 * 1000).toISOString() }));
+	await writeJsonl(join(ws, ".pi", "logs", "health.jsonl"), rows);
+
+	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
+	assert.equal(payload.last10LlmStatus.length, 10);
+	assert.ok(payload.last10LlmStatus.every((v) => typeof v === "boolean"));
+	assert.equal(payload.last10LlmStatus[0], false); // newest first
+	// Oldest-first disk rows reversed + head(10): newest 10 of the 13.
+	const expected = rows.slice(-10).reverse().map((r) => r.ok);
+	assert.deepEqual(payload.last10LlmStatus, expected);
+	assert.ok(payload.lastLlmCallFinished >= 0 && payload.lastLlmCallFinished <= 120, `fresh, got ${payload.lastLlmCallFinished}`);
+	// No meaningful events yet.
+	assert.equal(payload.lastAction, "-");
+	assert.equal(payload.lastActionAgoS, -1);
+	// No health records at all -> empty bars + unknown liveness.
+	const ws2 = await makeWorkspace();
+	await writeJsonl(join(ws2, ".pi", "logs", "runs.jsonl"), []);
+	await writeJsonl(join(ws2, ".pi", "logs", "events.jsonl"), []);
+	await writeFile(join(ws2, ".pi", "logs", "health.jsonl"), "", "utf8");
+	const empty = await buildEspStatus({ workspace: ws2, projectName: "demo" });
+	assert.deepEqual(empty.last10LlmStatus, []);
+	assert.equal(empty.lastLlmCallFinished, -1);
 });
 
 test("buildEspStatus marks stuck when active record exceeds timeout", async () => {
@@ -127,25 +193,19 @@ test("buildEspStatus marks stuck when active record exceeds timeout", async () =
 		JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), workspace: ws }) + "\n",
 		"utf8",
 	);
-	await writeFile(join(ws, ".pi", "logs", "events.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "errors.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "usage.jsonl"), "", "utf8");
+	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), []);
 	await writeFile(join(ws, ".pi", "logs", "health.jsonl"), "", "utf8");
 
 	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
 	assert.equal(payload.stuck, true);
-	assert.equal(payload.state, "stuck");
-	assert.equal(payload.status, "red");
-	assert.equal(payload.act_ago_s, -1);
-	assert.equal(payload.run_ok_n, 0);
+	assert.equal(payload.lastAction, "-");
+	assert.equal(payload.lastActionAgoS, -1);
 });
 
 test("buildEspStatus finds model buried below the 100-row health window", async () => {
 	const ws = await makeWorkspace();
 	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), []);
 	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), []);
-	await writeFile(join(ws, ".pi", "logs", "errors.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "usage.jsonl"), "", "utf8");
 	// health.jsonl is oldest-first on disk: one old success carrying a model,
 	// then 100 recent model-less retry entries that fill the fresh window.
 	const rows = [{ ok: true, persona: "pm", runId: "r-old", model: "deepseek-ai/DeepSeek-V4-Flash-0731", reason: "ok" }];
@@ -154,27 +214,4 @@ test("buildEspStatus finds model buried below the 100-row health window", async 
 
 	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
 	assert.equal(payload.model, "deepseek-ai/DeepSeek-V4-Flash-0731");
-});
-
-test("buildEspStatus is green for fresh meaningful work without active persona", async () => {
-	const ws = await makeWorkspace();
-	const runId = "engineer-20260915-120000-cccccccc";
-	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), [runRecord({ runId, status: "ok", action: "ran" })]);
-	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), [
-		eventRecord({ id: "e1", type: "pr.merged", at: new Date(Date.now() - 60 * 1000).toISOString(), runId, data: { command: "gh pr merge 12", kind: "gh" } }),
-	]);
-	await writeFile(join(ws, ".pi", "logs", "errors.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "usage.jsonl"), "", "utf8");
-	await writeFile(join(ws, ".pi", "logs", "health.jsonl"), "", "utf8");
-	// Live loop lock so loop.running=true; last run finished so not activeP.
-	await writeFile(
-		join(ws, ".pi", "state", "loop.lock"),
-		JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), workspace: ws }) + "\n",
-		"utf8",
-	);
-
-	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
-	assert.equal(payload.act, "merged PR #12");
-	assert.equal(payload.status, "green");
-	assert.equal(payload.stuck, false);
 });

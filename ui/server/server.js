@@ -25,10 +25,10 @@
  *   GET /api/usage    token usage per day
  *   GET /api/errors   recent errors
  *   GET /api/summary  latest machine-readable execution summary
- *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v8: proj/loop,
- *                     green-red dot, state/stuck, model, last-10 ok_n/fail_n
- *                     gauge (legacy), persona, run_id/run_ok_n progress,
- *                     act/act_t/act_ago_s last meaningful action)
+ *   GET /api/esp-status tiny ESP32 pocket-monitor payload (v9: proj/loop,
+ *                     stuck, persona, model, lastAction/lastActionAgoS last
+ *                     meaningful action, last10LlmStatus bar history,
+ *                     lastLlmCallFinished liveness)
  *
  * The active project is resolved from `~/.auto-pi/current-project.json` (same
  * record the loop writes at seed time). If no project is active, endpoints
@@ -340,50 +340,46 @@ export function humanizeMeaningfulEvent(e) {
 }
 
 /** Build the tiny ESP-optimized status payload (LAN polling).
- * v8 layout contract (170x320 portrait):
- *   Project (Loop)  -> `proj`, `loop`
- *   GREEN/RED dot   -> `status` ("green" | "red", decided server-side)
+ * v9 layout contract (170x320 portrait) — trimmed to what the display shows:
+ *   Project (Loop)  -> `proj`, `loop` (`ON`/`OFF` badge + header color)
+ *   Stuck           -> `stuck` bool (active record older than
+ *                      loop.personaTimeoutMs / personaInactivityMs, or active
+ *                      while the loop is dead); firmware renders large red STUCK
+ *   Persona         -> `persona` (pm | engineer | review-engineer | ...)
  *   Model           -> `model` (effective pi model; `provider` removed in v8
  *                      to save space — see /api/status for provider detail)
- *   GAUGE (legacy)  -> `ok_n` / `fail_n` LLM calls over the last 10
- *                      health.jsonl records (kept so old firmware keeps working;
- *                      new firmware should use `run_ok_n` progress instead)
- *   Persona         -> `persona` (pm | engineer | review-engineer | ...)
- *   Last meaningful -> `act` (e.g. "merged PR #12"), `act_t` (event type),
- *                      `act_ago_s` (seconds since it happened, -1 when none)
- *   Progress        -> `run_ok_n` meaningful actions in the current/last run
- *                      (`run_id`); render as `ENGINEER:{run_ok_n}`
- *   Liveness        -> `state` (active|idle|waiting|stopped|stuck|error),
- *                      `stuck` bool (active record older than
- *                      loop.personaTimeoutMs / personaInactivityMs, or active
- *                      while the loop is dead)
- * Legacy fields (`ago_s`, `last`, `tok_today`, `err`) are kept so older
- * firmware keeps working during the transition. */
+ *   Last action     -> `lastAction` (e.g. "merged PR #12") +
+ *                      `lastActionAgoS` (seconds since it happened, -1 when
+ *                      none); render as e.g. "commit 3m ago"
+ *   LLM bars        -> `last10LlmStatus` (up to 10 booleans, newest first;
+ *                      `true` = green bar, `false` = red bar)
+ *   LLM liveness    -> `lastLlmCallFinished` (seconds since the newest
+ *                      health.jsonl record, ok or fail; -1 when none);
+ *                      render as e.g. "last llm call 5m ago"
+ * v8 fields (`status`, `state`, `ok_n`/`fail_n`, `run_id`/`run_ok_n`,
+ * `act`/`act_t`/`act_ago_s`, `ago_s`, `last`, `tok_today`, `err`, `at`)
+ * were removed in v9 — old firmware must upgrade. */
 export async function buildEspStatus(active) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
-	const [runs, events, errors, usage, health] = await Promise.all([
+	const [runs, events, health] = await Promise.all([
 		readRuns(workspace),
 		readEvents(workspace, { limit: 200 }),
-		readErrors(workspace),
-		readUsage(workspace),
 		readHealth(workspace, { limit: 100 }),
 	]);
 	const loop = await loopState(workspace);
 	const now = Date.now();
 	const lastRun = runs.length ? runs[runs.length - 1] : null;
-	const lastEvent = events.length ? events[0] : null;
-	const lastAtRaw = lastRun?.finishedAt || lastRun?.startedAt || lastEvent?.at || "";
-	const lastMs = Date.parse(lastAtRaw || "");
-	const ago_s = Number.isFinite(lastMs) ? Math.max(0, Math.floor((now - lastMs) / 1000)) : -1;
-	const today = new Date().toISOString().slice(0, 10);
-	// GAUGE (legacy): ok_n / fail_n over the last 10 LLM calls
-	// (health.jsonl is most-recent-first, so head it).
+
+	// Last-10 LLM outcomes (health.jsonl is most-recent-first, so head it):
+	// newest first, `true` = success (green bar), `false` = fail (red bar).
 	const win = health.slice(0, 10);
-	const ok_n = win.filter((h) => h.ok).length;
-	const fail_n = win.length - ok_n;
-	const tok_today = Number(usage.byDay?.[today]?.tokensTotal ?? usage.totals?.tokensTotal ?? 0) || 0;
-	const last = String(lastRun?.reason || lastEvent?.type || "idle").slice(0, 40);
+	const last10LlmStatus = win.map((h) => Boolean(h.ok));
+	// Seconds since the last LLM call finished (success or fail), -1 if none.
+	const lastHealthMs = Date.parse(win[0]?.at || "");
+	const lastLlmCallFinished = Number.isFinite(lastHealthMs)
+		? Math.max(0, Math.floor((now - lastHealthMs) / 1000))
+		: -1;
 
 	// Model: effective resolution (config -> PI_* env -> pi settings), then
 	// the most recent non-empty model in health.jsonl. Truncated for the tiny
@@ -419,31 +415,16 @@ export async function buildEspStatus(active) {
 	}
 	persona = (persona || "-").slice(0, 24);
 
-	// Last meaningful action: newest HIGH event (most-recent-first scan).
-	// `run_ok_n` counts HIGH events sharing the current/last runId, so
-	// ENGINEER:{run_ok_n} grows live while the persona works.
-	let act = "-";
-	let act_t = "";
-	let act_ago_s = -1;
-	const run_id = String(lastRun?.runId || "");
-	let run_ok_n = 0;
+	// Last meaningful action: newest meaningful event (most-recent-first scan).
+	let lastAction = "-";
+	let lastActionAgoS = -1;
 	for (const e of events) {
 		if (!isMeaningfulEvent(e)) continue;
-		if (!act_t) {
-			act_t = String(e.type || "");
-			act = humanizeMeaningfulEvent(e).slice(0, 40);
-			const ms = Date.parse(e.at || "");
-			act_ago_s = Number.isFinite(ms) ? Math.max(0, Math.floor((now - ms) / 1000)) : -1;
-		}
-		if (run_id && String(e.runId || "") === run_id) run_ok_n += 1;
-		if (act_t && (!run_id || String(e.runId || "") !== run_id)) {
-			// act found; keep scanning only when we still need run counts.
-			// Runs are contiguous in the ledger, so break once we leave the
-			// current runId after having counted at least one run event...
-			// (simpler: keep scanning — limit is 200, cheap).
-		}
+		lastAction = humanizeMeaningfulEvent(e).slice(0, 40);
+		const ms = Date.parse(e.at || "");
+		lastActionAgoS = Number.isFinite(ms) ? Math.max(0, Math.floor((now - ms) / 1000)) : -1;
+		break;
 	}
-	// Runs ledger has no runId on waiting/stopped markers — run_ok_n stays 0 there.
 
 	// Liveness: stuck vs active vs idle, driven by loop config
 	// (loop.personaInactivityMs / personaTimeoutMs, defaults mirror
@@ -455,7 +436,6 @@ export async function buildEspStatus(active) {
 	const activeP = Boolean(
 		lastRun && (lastRun.status === "started" || lastRun.status === "running"),
 	);
-	const lastFailed = Boolean(lastRun && (lastRun.status === "error" || lastRun.action === "error"));
 	const stopped = Boolean(loop.stopFilePresent);
 	const effectiveRunning = Boolean(loop.running && !stopped);
 	let stuck = false;
@@ -477,49 +457,17 @@ export async function buildEspStatus(active) {
 		}
 	}
 
-	let state = "idle";
-	if (stopped) state = "stopped";
-	else if (!loop.running && lastFailed) state = "error";
-	else if (!loop.running && activeP) state = "stuck";
-	else if (!loop.running) state = "idle";
-	else if (lastFailed) state = "error";
-	else if (stuck) state = "stuck";
-	else if (activeP) state = "active";
-	else if (lastRun?.action === "waiting" || lastRun?.status === "waiting") state = "waiting";
-	else if (lastRun?.action === "stopped" || lastRun?.status === "stopped") state = "stopped";
-	else state = "idle";
-
-	// Traffic-light: GREEN = loop doing GitHub-visible work (or actively
-	// working on it), else RED. Green requires loop on, no stop, no error,
-	// not stuck, and either a fresh active persona (long sessions are normal)
-	// or a recent meaningful action (<=15 min). A present stop file forces
-	// RED (and loop:false) even while the old PID still holds the lock.
-	let status = "red";
-	const actRecent = act_ago_s >= 0 && act_ago_s <= 900;
-	if (!stopped && loop.running && !lastFailed && !stuck && (activeP || actRecent)) {
-		status = "green";
-	}
 	return {
 		ok: true,
 		proj: String(active.projectName || "").slice(0, 24),
 		loop: effectiveRunning,
-		status,
-		state,
 		stuck,
-		model,
-		ok_n,
-		fail_n,
 		persona,
-		run_id: run_id.slice(0, 64),
-		run_ok_n,
-		act,
-		act_t,
-		act_ago_s,
-		ago_s,
-		last,
-		tok_today,
-		err: errors.length,
-		at: new Date().toISOString(),
+		model,
+		lastAction,
+		lastActionAgoS,
+		last10LlmStatus,
+		lastLlmCallFinished,
 	};
 }
 

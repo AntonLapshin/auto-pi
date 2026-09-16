@@ -80,7 +80,7 @@ node ui/server/server.js   # serves /api/* (static serving optional)
 | `GET /api/usage`     | Token usage per day / per cycle |
 | `GET /api/errors`    | Recent errors (`?limit=N`) |
 | `GET /api/summary`   | Latest machine-readable execution summary |
-| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload v8 (proj/loop, green/red dot + state/stuck, model, persona, run_id/run_ok_n progress, act/act_t/act_ago_s last meaningful action; legacy last-10 ok_n/fail_n LLM gauge kept for compat, `provider` removed) |
+| `GET /api/esp-status` | Tiny ESP32 pocket-monitor payload v9 (proj/loop, stuck, persona, model, lastAction/lastActionAgoS last meaningful action, last10LlmStatus LLM bar history, lastLlmCallFinished liveness) |
 | `GET /api/healthz`   | Liveness |
 
 All endpoints are read-only and intended for local use.
@@ -121,28 +121,31 @@ must both be true, or the request refuses/times out:
     `Connection refused`; from another host it typically just hangs until it
     times out (SYN dropped by firewall/no listener).
 
-### ESP32 v8 payload (meaningful progress)
+### ESP32 v9 payload (trimmed)
 
-`provider` was removed to save space — see `/api/status` for provider detail.
-Render progress from the new fields:
+v9 keeps only what the pocket display shows — old firmware must upgrade.
+See `/api/status` for the full dashboard payload (provider, stats, usage).
 
 ```
-ENGINEER:{run_ok_n}   e.g. ENGINEER:3
-{act_ago_s → "5m ago"}  e.g. 5m ago
-{act}                 e.g. merged PR #12
+{proj} ({loop} → ON/OFF)   e.g. timeline (ON)
+{model}                     e.g. deepseek-ai/DeepSeek-V4-Flash-0731
+{last10LlmStatus}           e.g. 10 bars, green=true / red=false (newest last)
+{lastLlmCallFinished → "5m ago"}   e.g. last llm call 5m ago
+{lastAction + lastActionAgoS → "3m ago"}  e.g. commit 3m ago
+{persona}                   e.g. ENGINEER
+{stuck} → STUCK             large red text when true
 ```
 
-* `act / act_t / act_ago_s` — last GitHub-visible action (issue/PR create,
-  review, merge, push/commit), not the loop heartbeat. `-` / `-1` when none yet.
-* `run_ok_n` — meaningful actions sharing the current/last `run_id`. `0`
-  means the persona ran but landed nothing on GitHub.
-* `state` — `active|idle|waiting|stopped|stuck|error`; `stuck=true` when the
-  active persona record is older than `loop.personaTimeoutMs` (default 1h) or
-  silent longer than `loop.personaInactivityMs` (default 10m), or active while
-  the loop is dead.
-* `status` stays binary (`green`/`red`): green only with the loop running, no
-  stop file, no error, not stuck, and either an active persona or a meaningful
-  action within 15 min.
+* `lastAction` / `lastActionAgoS` — last GitHub-visible action (issue/PR
+  create, review, merge, push/commit), not the loop heartbeat. `-` / `-1`
+  when none yet.
+* `last10LlmStatus` — up to 10 booleans, newest first, from `health.jsonl`
+  (success or fail). Empty when no LLM calls recorded yet.
+* `lastLlmCallFinished` — seconds since the newest `health.jsonl` record
+  (success or fail); `-1` when none yet.
+* `stuck=true` when the active persona record is older than
+  `loop.personaTimeoutMs` (default 1h) or silent longer than
+  `loop.personaInactivityMs` (default 10m), or active while the loop is dead.
 
 ## Data source
 
