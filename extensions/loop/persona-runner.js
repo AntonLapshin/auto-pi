@@ -639,6 +639,12 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 			finish({
 				exitCode: effectiveCode,
 				...parsed,
+				// Preserve the raw `pi --mode json` stream: `parsed.stdout` is
+				// reconstructed plain text, which `extractLlmCalls` cannot parse
+				// (it needs the raw JSON events). Without this, per-turn
+				// `llm.jsonl` records are never written and
+				// `last10LlmStatus`/`lastLlmCallFinished` stay empty/-1.
+				rawStdout: stdout,
 				stderr: providerError ? `${stderr}${stderr ? "\n" : ""}provider error: ${providerError}` : stderr,
 			});
 		});
@@ -917,8 +923,12 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 
 	// True per-LLM-turn calls: one llm.jsonl record per finished assistant
 	// message (turn) in the pi JSON stream, with per-turn ok/fail.
+	// NOTE: `executePi` parses the raw `--mode json` stream into plain-text
+	// `res.stdout`; `extractLlmCalls` needs the raw JSON events, so prefer
+	// `res.rawStdout` when present (real pi runs). Test stubs that inject raw
+	// JSON directly as `stdout` still work via the fallback.
 	try {
-		const turns = extractLlmCalls(res.stdout || "");
+		const turns = extractLlmCalls(res.rawStdout ?? res.stdout ?? "");
 		const at = finishedAt || new Date().toISOString();
 		for (const t of turns) {
 			await appendLlmCall(workspace, {
@@ -1066,8 +1076,9 @@ export async function runPersonaWithRetry(opts = {}) {
 		// Per-LLM-turn calls from this failed attempt: the final
 		// `finalizePersonaRun` only sees the LAST attempt's stdout, so log
 		// this attempt's finished turns now or they are lost.
+		// Prefer `rawStdout` (raw `--mode json` stream) — see note above.
 		try {
-			const turns = extractLlmCalls(res.stdout || "");
+			const turns = extractLlmCalls(res.rawStdout ?? res.stdout ?? "");
 			const at = new Date().toISOString();
 			for (const t of turns) {
 				await appendLlmCall(workspace, {

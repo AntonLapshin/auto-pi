@@ -66,14 +66,14 @@ test("writeProviderModel persists new provider/model and preserves other section
 	const ws = await makeWorkspace();
 	const res = await writeProviderModel(ws, {
 		provider: "gonkaapi",
-		model: "moonshotai/Kimi-K2.6",
+		model: "zai-org/GLM-5.3-Flash",
 	});
 	assert.equal(res.ok, true);
 	assert.deepEqual(res.changed.sort(), ["model", "provider"].sort());
 
 	const raw = JSON.parse(await readFile(join(ws, ".pi", "config.json"), "utf8"));
 	assert.equal(raw.pi.provider, "gonkaapi");
-	assert.equal(raw.pi.model, "moonshotai/Kimi-K2.6");
+	assert.equal(raw.pi.model, "zai-org/GLM-5.3-Flash");
 	// Other sections untouched.
 	assert.equal(raw.project.name, "demo");
 	assert.equal(raw.loop.intervalSeconds, 60);

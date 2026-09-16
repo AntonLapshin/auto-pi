@@ -29,8 +29,8 @@ export default function (pi: ExtensionAPI) {
 				maxTokens: 32768,
 			}),
 			reasoningModel({
-				id: "moonshotai/Kimi-K2.6",
-				name: "Kimi K2.6",
+				id: "zai-org/GLM-5.3-Flash",
+				name: "GLM-5.3-Flash",
 				cost: { input: 0.07, output: 0.1, cacheRead: 0, cacheWrite: 0 },
 				contextWindow: 200000,
 				maxTokens: 8192,

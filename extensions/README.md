@@ -13,7 +13,7 @@ function". Keep helpers inside `*/` subdirectories without their own
 | File / dir      | Purpose                                             | Milestone |
 |-----------------|-----------------------------------------------------|-----------|
 | `harness.ts`    | Registers `/loop-status`, `/loop-logs`, `/loop-resume`, `/loop-sync-config` | M13 |
-| `joingonka.ts`  | JoinGonka provider (DeepSeek V4 Flash / Kimi)       | existing  |
+| `joingonka.ts`  | JoinGonka provider (DeepSeek V4 Flash / GLM-5.3-Flash) | existing  |
 | `gonkaapi.ts`   | GonkaAPI provider (DeepSeek V4 Flash)               | existing  |
 | `shared/providers.js` | Shared OpenAI-compatible provider/model factory used by `gonkaapi.ts` + `joingonka.ts` (helper, not an extension) | existing |
 | `seed/`         | Initiation + repo creation + project scaffold + CI/Pages + deploy health | M2, M3, M4 |
