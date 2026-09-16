@@ -140,6 +140,22 @@ test("buildEspStatus marks stuck when active record exceeds timeout", async () =
 	assert.equal(payload.run_ok_n, 0);
 });
 
+test("buildEspStatus finds model buried below the 100-row health window", async () => {
+	const ws = await makeWorkspace();
+	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), []);
+	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), []);
+	await writeFile(join(ws, ".pi", "logs", "errors.jsonl"), "", "utf8");
+	await writeFile(join(ws, ".pi", "logs", "usage.jsonl"), "", "utf8");
+	// health.jsonl is oldest-first on disk: one old success carrying a model,
+	// then 100 recent model-less retry entries that fill the fresh window.
+	const rows = [{ ok: true, persona: "pm", runId: "r-old", model: "deepseek-ai/DeepSeek-V4-Flash-0731", reason: "ok" }];
+	for (let i = 0; i < 100; i += 1) rows.push({ ok: false, persona: "pm", runId: "r", model: "", reason: "429 overloaded" });
+	await writeJsonl(join(ws, ".pi", "logs", "health.jsonl"), rows);
+
+	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
+	assert.equal(payload.model, "deepseek-ai/DeepSeek-V4-Flash-0731");
+});
+
 test("buildEspStatus is green for fresh meaningful work without active persona", async () => {
 	const ws = await makeWorkspace();
 	const runId = "engineer-20260915-120000-cccccccc";

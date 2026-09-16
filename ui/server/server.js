@@ -395,6 +395,20 @@ export async function buildEspStatus(active) {
 			if (m) { model = m.slice(0, 48); break; }
 		}
 	}
+	if (!model) {
+		// Retry/failure entries carry no model, so a long outage can bury the
+		// last model-bearing record below the 100-row window above. Rescan
+		// deeper (the 1000-row window the pre-v8 endpoint used) before "-".
+		try {
+			const deep = await readHealth(workspace, { limit: 1000 });
+			for (let i = health.length; i < deep.length; i += 1) {
+				const m = String(deep[i]?.model || "").trim();
+				if (m) { model = m.slice(0, 48); break; }
+			}
+		} catch {
+			// best-effort — display falls back to "-" below
+		}
+	}
 	model = model || "-";
 
 	// Persona: active persona first (a started run means that persona is live),
