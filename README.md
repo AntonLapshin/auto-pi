@@ -170,6 +170,13 @@ npm run ui:server   # backend API on http://localhost:8787 (reads .pi/logs)
 npm run ui:dev      # Vite dev server on http://localhost:5173
 ```
 
+API (`/api/esp-status`) + loop (logging) together:
+
+```bash
+make server-start   # start API (systemd auto-pi-ui.service) + resume loop
+make server-restart # restart API + restart loop
+```
+
 Open **http://localhost:5173**. The dashboard reads the deterministic,
 structured ledgers the loop writes to the active project's `.pi/logs/`
 (`events.jsonl`, `health.jsonl`, `runs.jsonl`, `errors.jsonl`, `usage.jsonl`).
