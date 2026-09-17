@@ -41,6 +41,7 @@ import {
 	appendHealth,
 	appendLlmCall,
 	extractLlmCalls,
+	classifyLlmTurnEvent,
 	parseGitCommands,
 	classifyGitCommand,
 } from "../../skills/logging/core.js";
@@ -370,10 +371,31 @@ export async function runPersona({
 	const childEnv = buildChildEnv({ config, env });
 	const execOpts = { inactivityMs: personaInactivityMs(config), maxMs: personaMaxMs(config) };
 
+	// Live per-turn LLM logging (same as `runPersonaWithRetry`): each finished
+	// assistant turn lands in `llm.jsonl` with its real wall-clock time while
+	// the persona is still running. `finalizePersonaRun` skips them via
+	// `skipLlmTurns` so they are not double-logged.
+	let liveTurns = 0;
+	let liveChain = Promise.resolve();
+	const onLlmTurn = (turn) => {
+		liveTurns += 1;
+		liveChain = liveChain.then(() => appendLlmCall(workspace, {
+			at: turn?.at || new Date().toISOString(),
+			provider: config?.pi?.provider || "",
+			model: config?.pi?.model || "",
+			runId,
+			persona,
+			ok: Boolean(turn?.ok),
+			reason: String(turn?.reason || ""),
+		}, config)).catch((err) => warnSuppressed("persona.live-llm-record", err));
+		return liveChain;
+	};
+
 	const startedAt = new Date().toISOString();
 	const res = await (execute
-		? execute(args, childEnv, workspace, execOpts)
-		: executePi(args, childEnv, workspace, execOpts));
+		? execute(args, childEnv, workspace, { ...execOpts, onLlmTurn })
+		: executePi(args, childEnv, workspace, { ...execOpts, onLlmTurn }));
+	await liveChain.catch((err) => warnSuppressed("persona.live-llm-record", err));
 	const finishedAt = new Date().toISOString();
 
 	return finalizePersonaRun({
@@ -385,6 +407,7 @@ export async function runPersona({
 		startedAt,
 		finishedAt,
 		runDir,
+		skipLlmTurns: liveTurns,
 	});
 }
 
@@ -560,6 +583,14 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 	const { spawn } = await import("node:child_process");
 	const inactivityMs = Number(opts?.inactivityMs) > 0 ? Number(opts.inactivityMs) : 0;
 	const maxMs = Number(opts?.maxMs) > 0 ? Number(opts.maxMs) : 0;
+	// Optional live per-turn LLM callback `(turn) => void|Promise`, invoked the
+	// moment an assistant `message_end` event streams in (see
+	// `classifyLlmTurnEvent`). The loop wires this to append `llm.jsonl`
+	// records with their real wall-clock time, so `lastLlmCallFinished` stays
+	// fresh while a persona run is still in flight instead of collapsing to
+	// the run's finish timestamp (which made it always equal
+	// `lastPersonaCallFinished`). Never throws into the child handling.
+	const onLlmTurn = typeof opts?.onLlmTurn === "function" ? opts.onLlmTurn : null;
 	return new Promise((resolve) => {
 		let stdout = "";
 		let stderr = "";
@@ -567,6 +598,8 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 		let inactivityTimer = null;
 		let maxTimer = null;
 		let settled = false;
+		// Remainder of a JSONL line split across stdout chunks.
+		let lineBuf = "";
 
 		const finish = (res) => {
 			if (settled) return;
@@ -576,6 +609,39 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 			inactivityTimer = null;
 			maxTimer = null;
 			resolve(res);
+		};
+
+		// Scan streamed stdout text for complete `pi --mode json` lines and
+		// report finished assistant turns live. Chunk-safe: a JSON event split
+		// across `data` events waits in `lineBuf` until its newline arrives.
+		const scanLlmTurns = (text) => {
+			if (!onLlmTurn) return;
+			lineBuf += String(text || "");
+			let idx = lineBuf.indexOf("\n");
+			while (idx >= 0) {
+				const line = lineBuf.slice(0, idx).trim();
+				lineBuf = lineBuf.slice(idx + 1);
+				if (line) {
+					let ev;
+					try {
+						ev = JSON.parse(line);
+					} catch {
+						ev = null;
+					}
+					const turn = classifyLlmTurnEvent(ev);
+					if (turn) {
+						try {
+							const r = onLlmTurn({ ...turn, at: new Date().toISOString() });
+							if (r && typeof r.catch === "function") {
+								r.catch((err) => warnSuppressed("persona.live-llm-record", err));
+							}
+						} catch (err) {
+							warnSuppressed("persona.live-llm-record", err);
+						}
+					}
+				}
+				idx = lineBuf.indexOf("\n");
+			}
 		};
 
 		// Kill a hung persona and surface a retryable stall (exitCode null) so the
@@ -623,12 +689,17 @@ export async function executePi(args, childEnv, workspace, opts = {}) {
 			if (maxTimer.unref) maxTimer.unref();
 		}
 		armInactivity();
-		child.stdout.on("data", (d) => { stdout += d; armInactivity(); });
+		child.stdout.on("data", (d) => { stdout += d; scanLlmTurns(d); armInactivity(); });
 		child.stderr.on("data", (d) => { stderr += d; armInactivity(); });
 		child.on("error", (err) => {
 			finish({ exitCode: 1, stdout, stderr: String(err?.message || err) });
 		});
 		child.on("close", (code) => {
+			// Flush a final unterminated line (killed mid-write usually leaves
+			// truncated JSON that `classifyLlmTurnEvent` ignores — same as the
+			// post-hoc `extractLlmCalls` parse, so live + batch counts agree).
+			if (lineBuf.trim()) scanLlmTurns("\n");
+			lineBuf = "";
 			const parsed = parseJsonModeOutput(stdout);
 			// A provider/LLM error (e.g. "400 insufficient balance") makes `pi` exit 0
 			// with empty output. Force a non-zero exit so the run is treated as a
@@ -819,9 +890,11 @@ export function parseJsonModeOutput(raw) {
  * exhausted) so intermediate failed attempts are never double-logged.
  *
  * @param {object} p
+ * @param {number} [p.skipLlmTurns] turns already logged live during the run
+ *   (via `executePi`'s `onLlmTurn`) — skipped here so they are not double-logged
  * @returns {Promise<{ ok, exitCode, stdout, stderr, runDir, tokens, durationSeconds }>}
  */
-export async function finalizePersonaRun({ workspace, persona, runId, config, res, startedAt, finishedAt, runDir }) {
+export async function finalizePersonaRun({ workspace, persona, runId, config, res, startedAt, finishedAt, runDir, skipLlmTurns = 0 }) {
 	// Capture output in the run dir (best-effort; the ledger record below is authoritative).
 	await writeFile(join(runDir, "stdout.txt"), res.stdout || "", "utf8").catch((err) =>
 		warnSuppressed("persona.run-capture", err),
@@ -927,10 +1000,14 @@ export async function finalizePersonaRun({ workspace, persona, runId, config, re
 	// `res.stdout`; `extractLlmCalls` needs the raw JSON events, so prefer
 	// `res.rawStdout` when present (real pi runs). Test stubs that inject raw
 	// JSON directly as `stdout` still work via the fallback.
+	// Turns already logged live during the run (`skipLlmTurns`, oldest-first —
+	// same order `extractLlmCalls` returns) are skipped so they are not
+	// double-logged; only the remainder is stamped with the finish time.
 	try {
 		const turns = extractLlmCalls(res.rawStdout ?? res.stdout ?? "");
 		const at = finishedAt || new Date().toISOString();
-		for (const t of turns) {
+		const pending = turns.slice(Math.max(0, Number(skipLlmTurns) || 0));
+		for (const t of pending) {
 			await appendLlmCall(workspace, {
 				at,
 				provider: config?.pi?.provider || "",
@@ -1015,6 +1092,11 @@ export async function runPersonaWithRetry(opts = {}) {
 	let retries = 0;
 	let lastRes = null;
 	let lastRetryable = false;
+	// Turns logged live during the FINAL attempt (via `executePi`'s
+	// `onLlmTurn`) — passed to `finalizePersonaRun` as `skipLlmTurns` so the
+	// post-hoc flush only appends turns the live logger missed (e.g. stub
+	// executors that never call the callback).
+	let lastAttemptLiveTurns = 0;
 
 	while (true) {
 		// Attempt 0 starts the session; attempts 1..N continue it via the
@@ -1030,8 +1112,33 @@ export async function runPersonaWithRetry(opts = {}) {
 				config,
 				env,
 			});
-		const res = await execute(args, childEnv, workspace, execOpts);
+		// Live per-turn LLM logging: each assistant turn lands in `llm.jsonl`
+		// with its real wall-clock time the moment it streams in — so
+		// `lastLlmCallFinished` stays fresh while the persona is still
+		// working instead of collapsing to the run's finish timestamp.
+		// Writes are chained in stream order; the count is bumped
+		// synchronously so the post-attempt flush can skip them reliably.
+		let liveTurns = 0;
+		let liveChain = Promise.resolve();
+		const onLlmTurn = (turn) => {
+			liveTurns += 1;
+			liveChain = liveChain.then(() => appendLlmCall(workspace, {
+				at: turn?.at || new Date().toISOString(),
+				provider: config?.pi?.provider || "",
+				model: config?.pi?.model || "",
+				runId,
+				persona,
+				ok: Boolean(turn?.ok),
+				reason: String(turn?.reason || ""),
+			}, config)).catch((err) => warnSuppressed("persona.live-llm-record", err));
+			return liveChain;
+		};
+		const res = await execute(args, childEnv, workspace, { ...execOpts, onLlmTurn });
+		// Drain pending live writes before the post-hoc flush below, so the
+		// flush remainder lands after them in `llm.jsonl` (stream order).
+		await liveChain.catch((err) => warnSuppressed("persona.live-llm-record", err));
 		lastRes = res;
+		lastAttemptLiveTurns = liveTurns;
 		if (res.exitCode === 0) break;
 
 		const retryable = isRetryablePersonaFailure(res);
@@ -1077,10 +1184,13 @@ export async function runPersonaWithRetry(opts = {}) {
 		// `finalizePersonaRun` only sees the LAST attempt's stdout, so log
 		// this attempt's finished turns now or they are lost.
 		// Prefer `rawStdout` (raw `--mode json` stream) — see note above.
+		// Turns already logged live during this attempt (`liveTurns`,
+		// oldest-first — same order `extractLlmCalls` returns) are skipped
+		// so they are not double-logged.
 		try {
 			const turns = extractLlmCalls(res.rawStdout ?? res.stdout ?? "");
 			const at = new Date().toISOString();
-			for (const t of turns) {
+			for (const t of turns.slice(liveTurns)) {
 				await appendLlmCall(workspace, {
 					at,
 					provider: config?.pi?.provider || "",
@@ -1109,6 +1219,7 @@ export async function runPersonaWithRetry(opts = {}) {
 		startedAt,
 		finishedAt,
 		runDir,
+		skipLlmTurns: lastAttemptLiveTurns,
 	});
 
 	return { ...result, retries, retryable: lastRetryable };

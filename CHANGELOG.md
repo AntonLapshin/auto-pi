@@ -16,6 +16,12 @@ All notable changes to the auto-pi harness. Format follows
   `lastPersonaCallFinished` (whole persona runs, from `health.jsonl`) alongside
   `last10LlmStatus` / `lastLlmCallFinished` (now true per-turn LLM calls, from
   `llm.jsonl`); stuck watchdog + model fallback consider both ledgers.
+- Live per-turn LLM logging: `executePi` streams each finished assistant turn
+  via `onLlmTurn` (`classifyLlmTurnEvent`) so `llm.jsonl` records land with
+  their real wall-clock time while the persona is still running. Fixes
+  `lastLlmCallFinished` always equalling `lastPersonaCallFinished` (every turn
+  used to be stamped with the run's finish time at finalize); finalize/retry
+  flushes now append only turns the live logger missed (no duplicates).
 
 - `docs/architecture.md`: harness map, one-active-project invariant,
   fresh-session persona model, single label glossary (`pi:*`, `type:*`,

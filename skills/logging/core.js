@@ -716,6 +716,33 @@ export async function readLlmCalls(workspace, opts = {}) {
 }
 
 /**
+ * Classify a single parsed `pi --mode json` event as a finished LLM turn.
+ *
+ * Each assistant `message_end` event is one finished LLM call (turn): `ok`
+ * is false when the message carries `stopReason: "error"` or a non-empty
+ * `errorMessage` (provider 429/5xx/quota/…), true otherwise. Returns null
+ * for any other event (tool output, user messages, session headers, …).
+ *
+ * Shared by `extractLlmCalls` (post-hoc stream parse) and the live turn
+ * logger in `extensions/loop/persona-runner.js` (`executePi` invokes it per
+ * streamed line so `llm.jsonl` records land with their real wall-clock time
+ * instead of all sharing the run's finish timestamp).
+ *
+ * @param {unknown} ev  parsed JSON event object
+ * @returns {{ ok: boolean, reason: string }|null}
+ */
+export function classifyLlmTurnEvent(ev) {
+	if (!ev || typeof ev !== "object") return null;
+	if (ev.type === "message_end" && ev.message?.role === "assistant") {
+		const stopReason = String(ev.message?.stopReason || "");
+		const errMsg = String(ev.message?.errorMessage || "").trim();
+		const ok = !(stopReason === "error" || errMsg);
+		return { ok, reason: ok ? "" : (errMsg || `provider stopped: ${stopReason}`).slice(0, 200) };
+	}
+	return null;
+}
+
+/**
  * Extract per-LLM-turn outcomes from a `pi --mode json` stdout stream.
  *
  * Each assistant `message_end` event is one finished LLM call (turn): `ok`
@@ -748,12 +775,10 @@ export function extractLlmCalls(raw) {
 		} catch {
 			continue;
 		}
-		if (ev?.type === "message_end" && ev.message?.role === "assistant") {
+		const turn = classifyLlmTurnEvent(ev);
+		if (turn) {
 			sawAssistant = true;
-			const stopReason = String(ev.message?.stopReason || "");
-			const errMsg = String(ev.message?.errorMessage || "").trim();
-			const ok = !(stopReason === "error" || errMsg);
-			out.push({ ok, reason: ok ? "" : (errMsg || `provider stopped: ${stopReason}`).slice(0, 200) });
+			out.push(turn);
 		}
 	}
 	if (sawAssistant) return out;

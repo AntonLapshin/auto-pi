@@ -407,6 +407,21 @@ test("appendLlmCall writes per-turn records and readLlmCalls returns newest-firs
 	await access(join(dir, LLM_LOG_REL));
 });
 
+test("classifyLlmTurnEvent classifies single pi JSON events", async () => {
+	const { classifyLlmTurnEvent } = await import("../skills/logging/core.js");
+	assert.deepEqual(
+		classifyLlmTurnEvent({ type: "message_end", message: { role: "assistant", content: [] } }),
+		{ ok: true, reason: "" },
+	);
+	const fail = classifyLlmTurnEvent({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: "429 overloaded" } });
+	assert.equal(fail.ok, false);
+	assert.match(fail.reason, /429/);
+	assert.equal(classifyLlmTurnEvent({ type: "message_end", message: { role: "user" } }), null);
+	assert.equal(classifyLlmTurnEvent({ type: "session", id: "r1" }), null);
+	assert.equal(classifyLlmTurnEvent(null), null);
+	assert.equal(classifyLlmTurnEvent("not an object"), null);
+});
+
 test("extractLlmCalls parses per-turn ok/fail from pi JSON streams", async () => {
 	const okStream = [
 		JSON.stringify({ type: "session", id: "r1" }),

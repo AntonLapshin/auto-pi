@@ -52,9 +52,13 @@ Used to compute persona-run success rate.
 One record per individual finished LLM turn (assistant `message_end` in the
 `pi --mode json` stream): `{ version, at, provider, model, runId, persona,
 ok, reason }`. `ok=false` when the turn carries `stopReason: "error"` or an
-`errorMessage` (provider 429/5xx/quota/…). Extracted via `extractLlmCalls`,
-written by `finalizePersonaRun` (+ per failed retry attempt). Used to compute
-the true per-call provider signal.
+`errorMessage` (provider 429/5xx/quota/…). Classified per event via
+`classifyLlmTurnEvent` (batch form: `extractLlmCalls`). Turns stream into the
+ledger live while the persona runs (`executePi` `onLlmTurn`, real wall-clock
+`at`), with `finalizePersonaRun` (+ per failed retry attempt) appending only
+turns the live logger missed — so `lastLlmCallFinished` stays fresh during a
+run instead of equalling the persona-run finish time. Used to compute the
+true per-call provider signal.
 
 ## Git-command observability
 

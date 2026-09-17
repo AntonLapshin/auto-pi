@@ -664,3 +664,125 @@ test("runPersonaWithRetry: logs one llm.jsonl record per finished LLM turn", asy
 	assert.equal(health.length, 1);
 	assert.equal(health[0].ok, true);
 });
+
+test("executePi: reports finished LLM turns live via onLlmTurn", async () => {
+	// A stub `pi` streaming a JSON session with two assistant turns. The live
+	// callback must fire once per turn (in stream order) while the child runs.
+	const binDir = await makeStubPi([
+		'echo \'{"type":"session","version":3,"id":"x","cwd":"/ws"}\'',
+		'echo \'{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"step 1"}],"usage":{"input":1,"output":1},"stopReason":"end_turn"}}\'',
+		'echo \'{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"429 overloaded"}}\'',
+	]);
+	const childEnv = { ...process.env, PATH: `${binDir}:${process.env.PATH}` };
+	const seen = [];
+	const res = await executePi(["-p"], childEnv, "/tmp", {
+		inactivityMs: 5000,
+		maxMs: 20000,
+		onLlmTurn: (t) => { seen.push(t); },
+	});
+	// The error turn still forces a non-zero exit (provider-error handling is
+	// unchanged); the live callback fires for both turns regardless.
+	assert.equal(res.exitCode, 1);
+	assert.equal(seen.length, 2);
+	assert.equal(seen[0].ok, true);
+	assert.equal(seen[1].ok, false);
+	assert.match(seen[1].reason, /429/);
+	assert.ok(seen.every((t) => typeof t.at === "string" && t.at.length > 0), "turns carry a timestamp");
+});
+
+test("runPersonaWithRetry: live-logged turns keep their own timestamps and are not double-logged", async () => {
+	// Regression test: `lastLlmCallFinished` used to always equal
+	// `lastPersonaCallFinished` because every llm.jsonl record was stamped
+	// with the run's finish time at finalize. Turns streamed live must keep
+	// their real wall-clock time and must not be appended a second time by
+	// the post-hoc finalize flush.
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-llm-live-"));
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	const rawStdout = [
+		JSON.stringify({ type: "session", id: "r1" }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "step 1" }], usage: { input: 5, output: 5 } } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 overloaded" } }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "step 3" }], usage: { input: 5, output: 5 } } }),
+	].join("\n");
+	// Stub executor that behaves like the real executePi: it streams each turn
+	// through execOpts.onLlmTurn with its real time, then resolves with the
+	// full stream (which the finalize flush re-parses).
+	const liveAt = ["2026-09-17T00:00:01.000Z", "2026-09-17T00:00:02.000Z", "2026-09-17T00:00:03.000Z"];
+	const execute = async (_args, _env, _ws, execOpts) => {
+		const { extractLlmCalls } = await import("../skills/logging/core.js");
+		const turns = extractLlmCalls(rawStdout);
+		for (let i = 0; i < turns.length; i += 1) {
+			await execOpts.onLlmTurn({ ...turns[i], at: liveAt[i] });
+		}
+		return { exitCode: 0, stdout: rawStdout, stderr: "" };
+	};
+	const res = await runPersonaWithRetry({
+		workspace: dir,
+		persona: "engineer",
+		runId: "engineer-20260916-120000-dddddddd",
+		contextFile: join(dir, "ctx.md"),
+		task: "do work",
+		config: { pi: { maxRetries: 0 }, project: {} },
+		env: {},
+		execute,
+	});
+	assert.equal(res.ok, true);
+	const { readLlmCalls } = await import("../skills/logging/core.js");
+	const calls = await readLlmCalls(dir);
+	assert.equal(calls.length, 3, "live turns logged exactly once (no finalize duplicate)");
+	// Newest-first: the stored timestamps are the live turn times, not the
+	// run finish time.
+	assert.deepEqual(calls.map((c) => c.at), [liveAt[2], liveAt[1], liveAt[0]]);
+	assert.deepEqual(calls.map((c) => c.ok), [true, false, true]);
+	assert.ok(calls.every((c) => c.runId === "engineer-20260916-120000-dddddddd"));
+});
+
+test("runPersonaWithRetry: retry-attempt live turns are not double-logged by the retry flush", async () => {
+	// A failed first attempt streams one turn live; the retry-attempt flush
+	// must skip it, then the successful final attempt streams its own turn.
+	const dir = await mkdtemp(join(tmpdir(), "auto-pi-llm-retry-"));
+	await mkdir(join(dir, ".pi", "logs"), { recursive: true });
+	await mkdir(join(dir, ".pi", "state"), { recursive: true });
+	await writeFile(join(dir, "ctx.md"), "ctx", "utf8");
+	const failStream = [
+		JSON.stringify({ type: "session", id: "r1" }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "500 boom" } }),
+	].join("\n");
+	const okStream = [
+		JSON.stringify({ type: "session", id: "r1" }),
+		JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "recovered" }], usage: { input: 1, output: 1 } } }),
+	].join("\n");
+	let calls = 0;
+	const execute = async (_args, _env, _ws, execOpts) => {
+		calls += 1;
+		const { extractLlmCalls } = await import("../skills/logging/core.js");
+		if (calls === 1) {
+			for (const t of extractLlmCalls(failStream)) {
+				await execOpts.onLlmTurn({ ...t, at: "2026-09-17T00:00:01.000Z" });
+			}
+			return { exitCode: 1, stdout: failStream, rawStdout: failStream, stderr: "500 boom" };
+		}
+		for (const t of extractLlmCalls(okStream)) {
+			await execOpts.onLlmTurn({ ...t, at: "2026-09-17T00:00:09.000Z" });
+		}
+		return { exitCode: 0, stdout: okStream, rawStdout: okStream, stderr: "" };
+	};
+	const res = await runPersonaWithRetry({
+		workspace: dir,
+		persona: "engineer",
+		runId: "engineer-20260916-120000-eeeeeeee",
+		contextFile: join(dir, "ctx.md"),
+		task: "do work",
+		config: { pi: { maxRetries: 2, retryBaseDelayMs: 1, retryMaxDelayMs: 5 }, project: {} },
+		env: {},
+		execute,
+	});
+	assert.equal(res.ok, true);
+	assert.equal(res.retries, 1);
+	const { readLlmCalls } = await import("../skills/logging/core.js");
+	const llm = await readLlmCalls(dir);
+	assert.equal(llm.length, 2, "one live turn per attempt, no flush duplicates");
+	assert.deepEqual(llm.map((c) => c.ok), [true, false]);
+});
