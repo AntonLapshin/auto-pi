@@ -116,11 +116,15 @@ test("meaningful set excludes heartbeats, includes GitHub side-effects", () => {
 	assert.ok(MEANINGFUL_EVENT_TYPES.has("pr.merged"));
 	assert.ok(MEANINGFUL_EVENT_TYPES.has("issue.created"));
 	assert.ok(MEANINGFUL_EVENT_TYPES.has("git.push"));
+	assert.ok(MEANINGFUL_EVENT_TYPES.has("pr.edited"));
+	assert.ok(MEANINGFUL_EVENT_TYPES.has("label.created"));
 	assert.ok(!isMeaningfulEvent({ type: "persona.spawned" }));
 	assert.ok(!isMeaningfulEvent({ type: "loop.dispatch" }));
 	assert.ok(!isMeaningfulEvent({ type: "llm.retry" }));
 	assert.ok(!isMeaningfulEvent({ type: "git.status" }));
+	assert.ok(!isMeaningfulEvent({ type: "gh.command" }));
 	assert.ok(isMeaningfulEvent({ type: "pr.merged" }));
+	assert.ok(isMeaningfulEvent({ type: "pr.edited" }));
 });
 
 test("humanizeMeaningfulEvent renders short ESP labels", () => {
@@ -130,7 +134,20 @@ test("humanizeMeaningfulEvent renders short ESP labels", () => {
 		humanizeMeaningfulEvent({ type: "git.push", data: { command: "git push origin feat/foo" } }),
 		"pushed feat/foo",
 	);
+	assert.equal(humanizeMeaningfulEvent({ type: "git.push", data: { command: "git push", kind: "git" } }), "pushed");
+	assert.equal(humanizeMeaningfulEvent({ type: "git.push", data: { command: "git push 2>&1", kind: "git" } }), "pushed");
+	assert.equal(humanizeMeaningfulEvent({ type: "git.push", data: { command: "git push origin", kind: "git" } }), "pushed");
+	assert.equal(
+		humanizeMeaningfulEvent({ type: "git.push", data: { command: "git push origin --delete task/x 2>&1", kind: "git" } }),
+		"deleted task/x",
+	);
 	assert.ok(humanizeMeaningfulEvent({ type: "git.commit", data: {} }).length <= 40);
+	assert.equal(humanizeMeaningfulEvent({ type: "pr.edited", data: {} }), "edited PR");
+	assert.equal(
+		humanizeMeaningfulEvent({ type: "pr.edited", data: { command: "gh pr edit 110 --title X", kind: "gh" } }),
+		"edited PR #110",
+	);
+	assert.equal(humanizeMeaningfulEvent({ type: "label.created", data: {} }), "created label");
 });
 
 test("buildEspStatus returns only the v10 fields", async () => {
@@ -393,4 +410,38 @@ test("buildEspStatus finds model buried below the 100-row health window", async 
 
 	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
 	assert.equal(payload.model, "deepseek-ai/DeepSeek-V4-Flash-0731");
+});
+
+test("buildEspStatus finds lastAction buried below 200 heartbeat rows", async () => {
+	// Regression: heartbeats (`loop.dispatch` every cycle, `llm.retry` during
+	// a provider outage, read-only `gh pr view` probes) bury real GitHub
+	// actions within hours. A 200-row scan window stuck the display on
+	// "no action yet" (`-`) for days despite fresh pushes.
+	const ws = await makeWorkspace();
+	await writeJsonl(join(ws, ".pi", "logs", "runs.jsonl"), []);
+	await writeFile(join(ws, ".pi", "logs", "health.jsonl"), "", "utf8");
+	await writeFile(join(ws, ".pi", "logs", "llm.jsonl"), "", "utf8");
+	const now = Date.now();
+	const rows = [
+		eventRecord({
+			id: "e-old",
+			type: "git.push",
+			at: new Date(now - 19 * 60 * 60 * 1000).toISOString(),
+			data: { command: "git push origin feat/foo", kind: "git" },
+		}),
+	];
+	for (let i = 0; i < 300; i += 1) {
+		rows.push(eventRecord({
+			id: `h-${i}`,
+			type: "loop.dispatch",
+			at: new Date(now - (300 - i) * 60 * 1000).toISOString(),
+			runId: "",
+			data: {},
+		}));
+	}
+	await writeJsonl(join(ws, ".pi", "logs", "events.jsonl"), rows);
+
+	const payload = await buildEspStatus({ workspace: ws, projectName: "demo" });
+	assert.equal(payload.lastAction, "pushed feat/foo");
+	assert.ok(payload.lastActionAgoS >= 19 * 3600 && payload.lastActionAgoS < 20 * 3600, `stale but present, got ${payload.lastActionAgoS}`);
 });

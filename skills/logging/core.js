@@ -883,6 +883,15 @@ export function classifyGitCommand(c) {
 		if (/^gh pr comment\b/i.test(cmd)) return { type: "pr.commented", data };
 		// gh pr close …
 		if (/^gh pr close\b/i.test(cmd)) return { type: "pr.closed", data };
+		// gh pr edit … (--add-label/--remove-label changes labels, otherwise
+		// edits title/body/base — both are GitHub-visible side-effects, not
+		// read-only probes like `gh pr view`/`gh pr checks`).
+		if (/^gh pr edit\b/i.test(cmd)) {
+			if (/--add-label|--remove-label/i.test(cmd)) {
+				return { type: "labels.assigned", data };
+			}
+			return { type: "pr.edited", data };
+		}
 		// gh label create …
 		if (/^gh label create\b/i.test(cmd)) return { type: "label.created", data };
 		// gh api …/issues/…/labels (PATCH/POST) → label assignment

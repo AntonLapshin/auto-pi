@@ -499,6 +499,10 @@ test("classifyGitCommand maps lifecycle commands to event types", () => {
 	assert.equal(classifyGitCommand({ kind: "git", command: "git commit -m x" }).type, "git.commit");
 	assert.equal(classifyGitCommand({ kind: "git", command: "git push -u origin x" }).type, "git.push");
 	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr checks" }).type, "gh.command");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr edit 110 --add-label \"pi:review-needed\"" }).type, "labels.assigned");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr edit 110 --remove-label \"pi:changes-requested\"" }).type, "labels.assigned");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh pr edit 110 --title \"new title\"" }).type, "pr.edited");
+	assert.equal(classifyGitCommand({ kind: "gh", command: "gh label create pi:ready --color 000" }).type, "label.created");
 });
 
 // --- loop integration: a stopped cycle logs a run record + summary ---

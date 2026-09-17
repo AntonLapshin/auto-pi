@@ -57,6 +57,15 @@ All notable changes to the auto-pi harness. Format follows
 
 ### Fixed
 
+- `esp-status` `lastAction` stuck on "no action yet" for days: `buildEspStatus`
+  scanned only the newest 200 `events.jsonl` rows, so heartbeats
+  (`loop.dispatch` every cycle, `llm.retry` during a provider outage,
+  read-only `gh pr view` probes) buried real GitHub actions within hours.
+  The scan window is now 2000 rows. Also classifies `gh pr edit`
+  (`--add-label`/`--remove-label` → `labels.assigned`, other edits →
+  new meaningful `pr.edited` "edited PR #n"), adds `label.created` to the
+  meaningful set, and renders bare `git push` as "pushed" (was "pushed push")
+  and `git push --delete <branch>` as "deleted <branch>".
 - `esp-status` stuck false-positives: `stuck` no longer fires while the
   persona's `pi` child is alive (an LLM call in flight — health/events are
   only written when a call finishes or retries), failed LLM calls count as

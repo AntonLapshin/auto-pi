@@ -331,6 +331,8 @@ export const MEANINGFUL_EVENT_TYPES = new Set([
 	"pr.commented",
 	"pr.ready",
 	"pr.closed",
+	"pr.edited",
+	"label.created",
 	"labels.assigned",
 	"git.push",
 	"git.commit",
@@ -374,17 +376,21 @@ export function humanizeMeaningfulEvent(e) {
 		case "pr.commented": return n ? `commented PR #${n}` : "commented PR";
 		case "pr.ready": return n ? `PR #${n} ready` : "PR ready";
 		case "pr.closed": return n ? `closed PR #${n}` : "closed PR";
+		case "pr.edited": return n ? `edited PR #${n}` : "edited PR";
+		case "label.created": return "created label";
 		case "labels.assigned": return n ? `labeled #${n}` : "labeled";
 		case "git.push": {
 			const parts = cmd.trim().split(/\s+/);
-			let branch = parts[parts.length - 1] || "";
-			if (!branch || branch.startsWith("-") || branch.includes("origin") && parts.length < 4) branch = "";
-			// `git push origin <branch>` -> last token is the branch.
-			if (parts.length >= 4 && parts[0] === "git" && parts[1] === "push") {
-				branch = parts[parts.length - 1].startsWith("-") ? "" : parts[parts.length - 1];
-				if (branch === "origin" || branch === "--force" || branch === "-f") branch = "";
-			}
-			return (branch ? `pushed ${branch}` : "pushed").slice(0, 40);
+			const deleted = parts.some((t) => t === "--delete" || t === "-d");
+			// Walk past flags and shell redirections (`2>&1`, `>`, …): the
+			// branch/ref is the last remaining token after `git push [remote]`.
+			// A bare `git push` (or `git push origin`) names nothing — render
+			// plain "pushed", not "pushed push".
+			const toks = parts.filter((t) => t && !t.startsWith("-") && !t.includes(">"));
+			let branch = toks.length > 3 ? toks[toks.length - 1] : "";
+			if (branch === "origin" || branch === "upstream") branch = "";
+			if (!branch) return deleted ? "deleted branch" : "pushed";
+			return (deleted ? `deleted ${branch}` : `pushed ${branch}`).slice(0, 40);
 		}
 		case "git.commit": return "committed";
 		case "git.merge": return "merged branch";
@@ -439,9 +445,15 @@ export function humanizeMeaningfulEvent(e) {
 export async function buildEspStatus(active, opts = {}) {
 	const workspace = active.workspace;
 	const config = await readConfig(workspace);
+	// NB: the events window must be MUCH deeper than the 200-row liveness
+	// window: heartbeats (`loop.dispatch` every cycle, `llm.retry` during a
+	// provider outage, read-only `gh pr view`/`git status` probes) bury real
+	// GitHub actions within hours. With a 200-row window the newest
+	// meaningful event falls out of view and the display sticks on
+	// "no action yet" (`-`) for days despite fresh pushes/merges.
 	const [runs, events, health, llmCalls] = await Promise.all([
 		readRuns(workspace),
-		readEvents(workspace, { limit: 200 }),
+		readEvents(workspace, { limit: 2000 }),
 		readHealth(workspace, { limit: 100 }),
 		readLlmCalls(workspace, { limit: 100 }),
 	]);

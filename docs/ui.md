@@ -144,8 +144,9 @@ renamed in v10 to `last10PersonaStatus`/`lastPersonaCallFinished`; the v10
 ```
 
 * `lastAction` / `lastActionAgoS` — last GitHub-visible action (issue/PR
-  create, review, merge, push/commit), not the loop heartbeat. `-` / `-1`
-  when none yet.
+  create/edit, review, merge, push/commit, label changes), not the loop
+  heartbeat. Scanned over the newest 2000 events so heartbeats don't bury it;
+  `-` / `-1` when none yet.
 * `last10PersonaStatus` — up to 10 booleans, newest first, from `health.jsonl`
   (one per whole persona-run invocation outcome + one per retry).
   Empty when no persona runs recorded yet.
